@@ -63,17 +63,15 @@ struct TailscaleToolbarButton: View {
             Task { @MainActor in
                 isAnimating = true
                 if !reduceMotion { try? await Task.sleep(for: .milliseconds(260)) }
-
                 if model.tailscaleFunnelRunning { model.stopTailscaleFunnel() }
                 else { model.startTailscaleFunnel() }
-
                 if !reduceMotion { try? await Task.sleep(for: .milliseconds(460)) }
                 isAnimating = false
             }
         } label: {
             TailscaleMark(isActive: model.tailscaleFunnelRunning, isAnimating: isAnimating)
-                .frame(width: 24, height: 24)
         }
+        .buttonStyle(PerfectCircleToolbarButtonStyle())
         .disabled(isAnimating)
         .help(model.tailscaleFunnelRunning ? "Stop Tailscale Funnel" : "Start Tailscale Funnel")
         .accessibilityLabel(model.tailscaleFunnelRunning ? "Stop Tailscale Funnel" : "Start Tailscale Funnel")

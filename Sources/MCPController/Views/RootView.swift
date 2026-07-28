@@ -52,9 +52,23 @@ struct RootView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button("Add server", systemImage: "plus") { showingAddServer = true }.help("Add an MCP server")
+                Button {
+                    showingAddServer = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(PerfectCircleToolbarButtonStyle())
+                .help("Add an MCP server")
+
                 TailscaleToolbarButton()
-                SettingsLink { Label("Settings", systemImage: "gearshape") }.help("Settings (⌘,)")
+
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(PerfectCircleToolbarButtonStyle())
+                .help("Settings (⌘,)")
             }
         }
         .sheet(isPresented: $showingAddServer) { AddServerView().environmentObject(model) }
