@@ -32,6 +32,7 @@ struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
 struct ServerProfile: Identifiable, Codable, Hashable {
     var id = UUID()
     var name = "New MCP Server"
+    var description = ""
     var executablePath = ""
     var arguments: [String] = []
     var workingDirectory = ""
@@ -95,7 +96,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, executablePath, arguments, workingDirectory, environment
+        case id, name, description, executablePath, arguments, workingDirectory, environment
         case localPort, exposureMode, publicPort, mountPath, tailscalePath
         case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort
         case leaseTimeoutSeconds, allowedOrigins, clientCredentials
@@ -107,6 +108,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try values.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
+        description = try values.decodeIfPresent(String.self, forKey: .description) ?? ""
         executablePath = try values.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
         arguments = try values.decodeIfPresent([String].self, forKey: .arguments) ?? []
         workingDirectory = try values.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
