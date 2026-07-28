@@ -12,7 +12,7 @@ enum PortInspector {
             arguments: ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
         ), result.exitCode == 0,
         let firstLine = result.output.split(whereSeparator: \.isNewline).first,
-        let pid = Int32(firstLine.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        let pid = Int32(String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return nil
         }
 
