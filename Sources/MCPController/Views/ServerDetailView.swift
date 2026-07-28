@@ -24,7 +24,6 @@ struct ServerDetailView: View {
     @State private var environmentText: String
     @State private var selection: DetailSection = .setup
     @State private var pulse = false
-    @Namespace private var actionNamespace
 
     private let settingColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -101,45 +100,19 @@ struct ServerDetailView: View {
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.82))
     }
 
-    @ViewBuilder private var actionGroup: some View {
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 12) {
-                HStack(spacing: 10) {
-                    Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicate(draft) }
-                        .buttonStyle(.glass)
-                        .glassEffectID("secondary", in: actionNamespace)
-                    if phase.isActive {
-                        Button("Stop", systemImage: "stop.fill", role: .destructive) { model.stop(draft) }
-                            .buttonStyle(.glassProminent)
-                            .tint(.red)
-                            .glassEffectID("primary", in: actionNamespace)
-                            .glassEffectTransition(.matchedGeometry)
-                    } else {
-                        Button("Start", systemImage: "play.fill") {
-                            saveDraft()
-                            model.start(draft)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .tint(.blue)
-                        .glassEffectID("primary", in: actionNamespace)
-                        .glassEffectTransition(.matchedGeometry)
-                    }
-                }
+    private var actionGroup: some View {
+        HStack(spacing: 10) {
+            actionCircle(symbol: "plus.square.on.square", tint: .secondary, help: "Duplicate server") {
+                model.duplicate(draft)
             }
-            .animation(AppMotion.standard(reduceMotion: reduceMotion), value: phase.isActive)
-        } else {
-            HStack(spacing: 10) {
-                Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicate(draft) }
-                if phase.isActive {
-                    Button("Stop", systemImage: "stop.fill", role: .destructive) { model.stop(draft) }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                } else {
-                    Button("Start", systemImage: "play.fill") {
-                        saveDraft()
-                        model.start(draft)
-                    }
-                    .buttonStyle(.borderedProminent)
+            if phase.isActive {
+                actionCircle(symbol: "stop.fill", tint: .red, help: "Stop server") {
+                    model.stop(draft)
+                }
+            } else {
+                actionCircle(symbol: "play.fill", tint: .blue, help: "Start server") {
+                    saveDraft()
+                    model.start(draft)
                 }
             }
         }
@@ -152,7 +125,7 @@ struct ServerDetailView: View {
         case .access:
             ExposureSettingsView(profile: $draft, phase: phase)
         case .activity:
-            activityContent
+            logsContent
         }
     }
 
@@ -264,57 +237,32 @@ struct ServerDetailView: View {
         }
     }
 
-    private var activityContent: some View {
-        VStack(spacing: 18) {
-            ContentCard(title: "Runtime", symbol: "waveform.path.ecg") {
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                    GridRow {
-                        Text("Status").foregroundStyle(.secondary)
-                        Text(phase.title).foregroundStyle(statusColor)
-                    }
-                    GridRow {
-                        Text("Local endpoint").foregroundStyle(.secondary)
-                        Text("127.0.0.1:\(draft.exposedLocalPort)")
-                            .font(.system(.caption, design: .monospaced))
-                    }
-                    GridRow {
-                        Text("Remote route").foregroundStyle(.secondary)
-                        Text(draft.tailscaleRouteEnabled ? draft.normalizedMountPath : "Off")
-                            .font(.system(.caption, design: .monospaced))
-                    }
-                    GridRow {
-                        Text("Active client").foregroundStyle(.secondary)
-                        Text(activeClientLabel)
-                    }
+    private var logsContent: some View {
+        ContentCard(title: "Logs", symbol: "text.alignleft") {
+            VStack(alignment: .leading, spacing: 12) {
+                ScrollView {
+                    Text(model.logs[draft.id, default: "No output yet."])
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
                 }
-            }
+                .frame(minHeight: 340)
+                .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 13))
+                .foregroundStyle(Color.white.opacity(0.88))
 
-            ContentCard(title: "Logs", symbol: "text.alignleft") {
-                VStack(alignment: .leading, spacing: 12) {
-                    ScrollView {
-                        Text(model.logs[draft.id, default: "No output yet."])
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
+                HStack {
+                    Text("The newest 100 KB is kept in memory.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Copy logs", systemImage: "square.on.square") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.logs[draft.id, default: ""], forType: .string)
                     }
-                    .frame(minHeight: 340)
-                    .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 13))
-                    .foregroundStyle(Color.white.opacity(0.88))
-
-                    HStack {
-                        Text("The newest 100 KB is kept in memory.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Copy logs", systemImage: "square.on.square") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(model.logs[draft.id, default: ""], forType: .string)
-                        }
-                        .labelStyle(.iconOnly)
-                        .help("Copy logs")
-                        Button("Clear", systemImage: "trash") { model.clearLog(for: draft.id) }
-                    }
+                    .labelStyle(.iconOnly)
+                    .help("Copy logs")
+                    Button("Clear", systemImage: "trash") { model.clearLog(for: draft.id) }
                 }
             }
         }
@@ -323,13 +271,6 @@ struct ServerDetailView: View {
     private var endpointSummary: String {
         let access = draft.exclusiveGatewayEnabled ? "Protected" : "Direct"
         return "\(access) · 127.0.0.1:\(draft.exposedLocalPort)"
-    }
-
-    private var activeClientLabel: String {
-        if let lease = model.lease(for: draft.id) { return lease.clientName }
-        let waitingCount = model.waiting(for: draft.id).count
-        if waitingCount > 0 { return waitingCount == 1 ? "1 waiting" : "\(waitingCount) waiting" }
-        return draft.exclusiveGatewayEnabled ? "None" : "Direct access"
     }
 
     private var readinessTimeoutBinding: Binding<Double> {
@@ -377,6 +318,16 @@ struct ServerDetailView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(14)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func actionCircle(symbol: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .buttonStyle(PerfectCircleToolbarButtonStyle())
+        .help(help)
     }
 
     private func integerBinding(_ keyPath: WritableKeyPath<ServerProfile, Int>) -> Binding<String> {

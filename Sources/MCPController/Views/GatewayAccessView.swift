@@ -7,7 +7,6 @@ struct GatewayAccessView: View {
     let isRunning: Bool
     @State private var originText = ""
     @State private var showKeys = false
-    @State private var showAdvanced = false
 
     var body: some View {
         ContentCard(title: "Access control", symbol: "lock.shield") {
@@ -40,9 +39,25 @@ struct GatewayAccessView: View {
                             .padding(.top, 8)
                     }
 
-                    DisclosureGroup("Advanced gateway settings", isExpanded: $showAdvanced) {
-                        advancedSettings
-                            .padding(.top, 8)
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                        GridRow {
+                            Text("Gateway port").foregroundStyle(.secondary)
+                            TextField("39000", text: gatewayPortBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .disabled(isRunning)
+                        }
+                        GridRow {
+                            Text("Lease timeout").foregroundStyle(.secondary)
+                            Stepper("\(profile.leaseTimeoutSeconds / 60) min", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
+                                .disabled(isRunning)
+                        }
+                        GridRow {
+                            Text("Allowed origins").foregroundStyle(.secondary)
+                            TextField("Optional, comma separated", text: $originText)
+                                .textFieldStyle(.roundedBorder)
+                                .disabled(isRunning)
+                        }
                     }
                 }
 
@@ -131,29 +146,6 @@ struct GatewayAccessView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-            }
-        }
-    }
-
-    private var advancedSettings: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-            GridRow {
-                Text("Gateway port").foregroundStyle(.secondary)
-                TextField("39000", text: gatewayPortBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
-                    .disabled(isRunning)
-            }
-            GridRow {
-                Text("Lease timeout").foregroundStyle(.secondary)
-                Stepper("\(profile.leaseTimeoutSeconds / 60) min", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
-                    .disabled(isRunning)
-            }
-            GridRow {
-                Text("Allowed origins").foregroundStyle(.secondary)
-                TextField("Optional, comma separated", text: $originText)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(isRunning)
             }
         }
     }

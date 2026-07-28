@@ -13,7 +13,6 @@ struct ExposureSettingsView: View {
             remoteAccessCard
             remoteCompatibilityCard
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
-            advancedCard
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
         .onAppear { refreshDNS() }
@@ -30,8 +29,8 @@ struct ExposureSettingsView: View {
                         Text("Remote route")
                             .fontWeight(.medium)
                         Text(profile.tailscaleRouteEnabled
-                             ? "These controls update this server’s Tailscale route directly."
-                             : "Turn this on to give this server a Tailscale route.")
+                             ? "These settings directly control this server’s remote route."
+                             : "Turn this on to give the server a Tailscale route.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -63,6 +62,7 @@ struct ExposureSettingsView: View {
                             Text("Route path").foregroundStyle(.secondary)
                             TextField("/mcp/server", text: $profile.mountPath)
                                 .textFieldStyle(.roundedBorder)
+                                .font(.system(.subheadline, design: .monospaced))
                         }
                         GridRow {
                             Text("Remote URL").foregroundStyle(.secondary)
@@ -87,7 +87,7 @@ struct ExposureSettingsView: View {
 
                     Text(model.tailscaleFunnelRunning
                          ? "Stop the shared Funnel in Settings before editing a live public route."
-                         : "These settings will be used the next time the shared Funnel starts.")
+                         : "These route settings will be used the next time the shared Funnel starts.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -106,7 +106,7 @@ struct ExposureSettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Compatibility mode")
                             .fontWeight(.medium)
-                        Text("Keeps remote access, route protection, and the default client key aligned for this server.")
+                        Text("Keeps remote access, route protection, and the default key aligned for this server.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -137,47 +137,6 @@ struct ExposureSettingsView: View {
 
                 if phase.isActive {
                     Text("Stop the server before changing compatibility mode.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var advancedCard: some View {
-        ContentCard(title: "Advanced", symbol: "slider.horizontal.3") {
-            VStack(alignment: .leading, spacing: 12) {
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-                    GridRow {
-                        Text("Local port").foregroundStyle(.secondary)
-                        TextField("4101", text: integerBinding(\.localPort))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                            .disabled(phase.isActive)
-                    }
-                    GridRow {
-                        Text("Readiness timeout").foregroundStyle(.secondary)
-                        HStack(spacing: 10) {
-                            Slider(value: $profile.startupDelaySeconds, in: 0...30, step: 0.5)
-                                .frame(width: 220)
-                            Text("\(max(15, Int(profile.startupDelaySeconds)))s")
-                                .monospacedDigit()
-                                .frame(width: 40, alignment: .trailing)
-                        }
-                    }
-                    GridRow {
-                        Text("Start at launch").foregroundStyle(.secondary)
-                        Toggle("Start when MCP Controller opens", isOn: $profile.autoStart)
-                            .labelsHidden()
-                    }
-                }
-
-                if profile.localPort < 1024 {
-                    Label("Use port 1024 or higher.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.red)
-                } else if phase.isActive {
-                    Text("Stop the server before changing its local port.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -226,17 +185,15 @@ struct ExposureSettingsView: View {
 
     private var compatibilityColor: Color {
         if !profile.remoteClientCompatibilityEnabled { return .secondary }
-        if !profile.tailscaleRouteEnabled || profile.exposureMode == .disabled || dnsName.isEmpty { return .orange }
         if phase.isFailed { return .red }
+        if !profile.tailscaleRouteEnabled || profile.exposureMode == .disabled || dnsName.isEmpty { return .orange }
         return phase.isActive ? .green : .secondary
     }
 
     private var remoteAccessBinding: Binding<Bool> {
         Binding(
             get: { profile.tailscaleRouteEnabled },
-            set: { enabled in
-                applyRemoteAccess(enabled: enabled)
-            }
+            set: { enabled in applyRemoteAccess(enabled: enabled) }
         )
     }
 
@@ -309,17 +266,5 @@ struct ExposureSettingsView: View {
 
     private func refreshDNS() {
         dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? ""
-    }
-
-    private func integerBinding(_ keyPath: WritableKeyPath<ServerProfile, Int>) -> Binding<String> {
-        Binding(
-            get: { String(profile[keyPath: keyPath]) },
-            set: { text in
-                let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) {
-                    profile[keyPath: keyPath] = value
-                }
-            }
-        )
     }
 }
