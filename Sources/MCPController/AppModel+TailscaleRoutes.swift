@@ -22,20 +22,64 @@ extension AppModel {
         return "\(base)-\(suffix)"
     }
 
+    func startTailscaleFunnel() {
+        let routes = profiles.filter(\.tailscaleRouteEnabled)
+        guard !routes.isEmpty else {
+            presentedError = "Configure at least one server in Settings → Tailscale before starting Funnel."
+            tailscaleFunnelRunning = false
+            UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
+            return
+        }
+
+        var failures: [String] = []
+        var started = 0
+        for profile in routes {
+            guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath),
+                  let arguments = TailscaleCommandBuilder.enableArguments(for: profile) else {
+                failures.append("\(profile.name): Tailscale CLI or route configuration is invalid")
+                continue
+            }
+            do {
+                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                if result.exitCode == 0 { started += 1 }
+                else { failures.append("\(profile.name): \(result.error.isEmpty ? result.output : result.error)") }
+            } catch { failures.append("\(profile.name): \(error.localizedDescription)") }
+        }
+
+        tailscaleFunnelRunning = started > 0
+        UserDefaults.standard.set(tailscaleFunnelRunning, forKey: "tailscale.funnelRunning")
+        if !failures.isEmpty { presentedError = "Some Tailscale routes could not start:\n" + failures.joined(separator: "\n") }
+    }
+
+    func stopTailscaleFunnel() {
+        var failures: [String] = []
+        for profile in profiles where profile.tailscaleRouteEnabled {
+            guard let arguments = TailscaleCommandBuilder.removeArguments(for: profile) else { continue }
+            do {
+                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                let message = (result.error + result.output).lowercased()
+                if result.exitCode != 0 && !message.contains("handler does not exist") && !message.contains("failed to remove web serve") {
+                    failures.append("\(profile.name): \(result.error.isEmpty ? result.output : result.error)")
+                }
+            } catch { failures.append("\(profile.name): \(error.localizedDescription)") }
+        }
+        tailscaleFunnelRunning = false
+        UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
+        if !failures.isEmpty { presentedError = "Some Tailscale routes could not be removed:\n" + failures.joined(separator: "\n") }
+    }
+
     @discardableResult
     func startTailscaleRoute(_ profile: ServerProfile) -> Bool {
         guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath) else { presentedError = "Tailscale CLI was not found at \(profile.tailscalePath)."; return false }
         if let conflict = profiles.first(where: { $0.id != profile.id && $0.tailscaleRouteEnabled && $0.publicPort == profile.publicPort && $0.normalizedMountPath == profile.normalizedMountPath }) {
-            presentedError = "\(conflict.name) already uses HTTPS port \(profile.publicPort) at \(profile.normalizedMountPath)."
-            return false
+            presentedError = "\(conflict.name) already uses HTTPS port \(profile.publicPort) at \(profile.normalizedMountPath)."; return false
         }
         var configured = profile; configured.tailscaleRouteEnabled = true
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: configured) else { presentedError = "Choose Tailnet or Public Funnel before starting the route."; return false }
         do {
             let result = try CommandRunner.run(executable: configured.tailscalePath, arguments: arguments)
             guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
-            update(configured)
-            tailscaleFunnelRunning = true
+            update(configured); tailscaleFunnelRunning = true
             UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
             return true
         } catch { presentedError = "Could not start the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }

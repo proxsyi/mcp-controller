@@ -14,25 +14,12 @@ struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct ServerProfile: Identifiable, Codable, Hashable {
-    var id = UUID()
-    var name = "New MCP Server"
-    var description = ""
-    var executablePath = ""
-    var arguments: [String] = []
-    var workingDirectory = ""
-    var environment: [String: String] = [:]
-    var localPort = 3000
-    var exposureMode: ExposureMode = .disabled
-    var tailscaleRouteEnabled = false
-    var publicPort = 443
-    var mountPath = "/"
-    var tailscalePath = TailscaleRouteService.defaultCLIPath
-    var startupDelaySeconds = 1.0
-    var autoStart = false
-    var exclusiveGatewayEnabled = false
-    var gatewayPort = 39000
-    var leaseTimeoutSeconds = 900
-    var allowedOrigins: [String] = []
+    var id = UUID(); var name = "New MCP Server"; var description = ""; var executablePath = ""
+    var arguments: [String] = []; var workingDirectory = ""; var environment: [String: String] = [:]
+    var localPort = 3000; var exposureMode: ExposureMode = .disabled; var tailscaleRouteEnabled = false
+    var publicPort = 443; var mountPath = "/"; var tailscalePath = TailscaleRouteService.defaultCLIPath
+    var startupDelaySeconds = 1.0; var autoStart = false; var exclusiveGatewayEnabled = false
+    var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var allowedOrigins: [String] = []
     var clientCredentials: [GatewayClientCredential] = []
 
     var normalizedMountPath: String {
@@ -47,12 +34,12 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         var errors: [String] = []
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Name is required.") }
         if executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Executable path is required.") }
-        if !(1...65535).contains(localPort) { errors.append("Local port must be between 1 and 65535.") }
+        if !(1024...65535).contains(localPort) { errors.append("MCP server port must be 1024 or higher. Public HTTPS port 443 is configured separately in Settings → Tailscale.") }
         if exposureMode == .funnel && ![443, 8443, 10000].contains(publicPort) { errors.append("Funnel supports public ports 443, 8443, and 10000.") }
-        if tailscaleRouteEnabled && exposureMode == .disabled { errors.append("Choose Tailnet or Public Funnel before enabling a Tailscale route.") }
-        if exposureMode != .disabled && !TailscaleRouteService.isCLIAvailable(at: tailscalePath) { errors.append("The Tailscale CLI could not be found at \(tailscalePath).") }
+        if tailscaleRouteEnabled && exposureMode == .disabled { errors.append("Choose Tailnet or Public Funnel in Settings → Tailscale.") }
+        if tailscaleRouteEnabled && !TailscaleRouteService.isCLIAvailable(at: tailscalePath) { errors.append("The Tailscale CLI could not be found at \(tailscalePath).") }
         if exclusiveGatewayEnabled {
-            if !(1...65535).contains(gatewayPort) { errors.append("Gateway port must be between 1 and 65535.") }
+            if !(1024...65535).contains(gatewayPort) { errors.append("Gateway port must be between 1024 and 65535.") }
             if gatewayPort == localPort { errors.append("Gateway and upstream MCP ports must be different.") }
             if !(30...86_400).contains(leaseTimeoutSeconds) { errors.append("Exclusive lease timeout must be between 30 seconds and 24 hours.") }
             if clientCredentials.isEmpty { errors.append("Add at least one AI access key before enabling exclusive access.") }
@@ -61,34 +48,24 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, description, executablePath, arguments, workingDirectory, environment
-        case localPort, exposureMode, tailscaleRouteEnabled, publicPort, mountPath, tailscalePath
-        case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
+        case id, name, description, executablePath, arguments, workingDirectory, environment, localPort, exposureMode
+        case tailscaleRouteEnabled, publicPort, mountPath, tailscalePath, startupDelaySeconds, autoStart
+        case exclusiveGatewayEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
     }
-
     init() {}
     init(from decoder: Decoder) throws {
         let v = try decoder.container(keyedBy: CodingKeys.self)
-        id = try v.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        name = try v.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
-        description = try v.decodeIfPresent(String.self, forKey: .description) ?? ""
-        executablePath = try v.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
-        arguments = try v.decodeIfPresent([String].self, forKey: .arguments) ?? []
-        workingDirectory = try v.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
-        environment = try v.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
-        localPort = try v.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
-        exposureMode = try v.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled
-        tailscaleRouteEnabled = try v.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
-        publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443
-        mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
+        id = try v.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(); name = try v.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
+        description = try v.decodeIfPresent(String.self, forKey: .description) ?? ""; executablePath = try v.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+        arguments = try v.decodeIfPresent([String].self, forKey: .arguments) ?? []; workingDirectory = try v.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
+        environment = try v.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]; localPort = try v.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
+        exposureMode = try v.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled; tailscaleRouteEnabled = try v.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
+        publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443; mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
         let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
         tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
-        startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1
-        autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
-        exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
-        gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
-        leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900
-        allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
+        startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1; autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
+        exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false; gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
+        leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900; allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
         clientCredentials = try v.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
     }
 }
