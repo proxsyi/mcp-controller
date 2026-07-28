@@ -31,6 +31,22 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     }
     var exposedLocalPort: Int { exclusiveGatewayEnabled ? gatewayPort : localPort }
 
+    var streamableHTTPPath: String? {
+        if let index = arguments.firstIndex(of: "--streamableHttpPath"), arguments.indices.contains(index + 1) {
+            return Self.normalizedEndpointPath(arguments[index + 1])
+        }
+        if let argument = arguments.first(where: { $0.hasPrefix("--streamableHttpPath=") }) {
+            return Self.normalizedEndpointPath(String(argument.dropFirst("--streamableHttpPath=".count)))
+        }
+        return nil
+    }
+
+    private static func normalizedEndpointPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "/" }
+        return trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+    }
+
     func validationErrors() -> [String] {
         var errors: [String] = []
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Name is required.") }

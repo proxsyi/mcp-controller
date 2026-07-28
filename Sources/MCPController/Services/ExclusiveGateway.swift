@@ -325,99 +325,79 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func proxy(_ request: HTTPRequest, connection: NWConnection) {
-        let target = upstreamTarget(for: request.target)
-        guard let url = URL(string: "http://127.0.0.1:\(profile.localPort)\(target)") else {
-            sendError(connection, status: 502, message: "The upstream MCP URL is invalid.", requestID: request.jsonRPCID)
+        guard let port = NWEndpoint.Port(rawValue: UInt16(profile.localPort)) else {
+            sendError(connection, status: 502, message: "The upstream MCP port is invalid.", requestID: request.jsonRPCID)
             return
         }
-        var upstream = URLRequest(url: url)
-        upstream.httpMethod = request.method
-        upstream.httpBody = request.body
-        upstream.timeoutInterval = 60
-        for (name, value) in request.headers {
-            guard !["authorization", "host", "connection", "content-length", "transfer-encoding", "origin"].contains(name) else { continue }
-            upstream.setValue(value, forHTTPHeaderField: name)
-        }
-        upstream.setValue("MCP Controller", forHTTPHeaderField: "User-Agent")
 
-        Task { [weak self] in
+        let target = GatewayRouteMapper.upstreamTarget(for: request.target, profile: profile)
+        let upstream = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        upstream.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
-            do {
-                let (bytes, response) = try await URLSession.shared.bytes(for: upstream)
-                guard let http = response as? HTTPURLResponse else {
-                    self.sendError(connection, status: 502, message: "Upstream MCP returned an invalid response.", requestID: request.jsonRPCID)
-                    return
-                }
-                try await self.sendChunkedProxyResponse(connection, response: http, bytes: bytes)
-                if request.method == "DELETE", (200..<300).contains(http.statusCode) {
-                    self.queue.async {
-                        self.arbiter.release()
-                        self.publishState()
+            switch state {
+            case .ready:
+                upstream.stateUpdateHandler = nil
+                let payload = self.upstreamRequestData(request, target: target)
+                upstream.send(content: payload, completion: .contentProcessed { error in
+                    if let error {
+                        self.sendError(connection, status: 502, message: "Upstream MCP request failed: \(error.localizedDescription)", requestID: request.jsonRPCID)
+                        upstream.cancel()
+                    } else {
+                        self.pipeUpstreamResponse(upstream, to: connection)
                     }
-                }
-            } catch {
+                })
+            case .failed(let error):
                 self.sendError(connection, status: 502, message: "Upstream MCP is unavailable: \(error.localizedDescription)", requestID: request.jsonRPCID)
+                upstream.cancel()
+            case .cancelled:
+                break
+            default:
+                break
             }
         }
+        upstream.start(queue: queue)
     }
 
-    private func upstreamTarget(for requestTarget: String) -> String {
-        let mount = profile.normalizedMountPath
-        guard mount != "/" else { return requestTarget }
-        if requestTarget == mount { return "/" }
-        let prefix = mount + "/"
-        if requestTarget.hasPrefix(prefix) {
-            let stripped = String(requestTarget.dropFirst(mount.count))
-            return stripped.isEmpty ? "/" : stripped
-        }
-        return requestTarget
-    }
-
-    private func sendChunkedProxyResponse(
-        _ connection: NWConnection,
-        response: HTTPURLResponse,
-        bytes: URLSession.AsyncBytes
-    ) async throws {
-        var headers = "HTTP/1.1 \(response.statusCode) \(HTTPStatus.reason(response.statusCode))\r\n"
-        for (key, value) in response.allHeaderFields {
-            let name = String(describing: key)
-            guard !["content-length", "transfer-encoding", "connection"].contains(name.lowercased()) else { continue }
+    private func upstreamRequestData(_ request: HTTPRequest, target: String) -> Data {
+        var headers = "\(request.method) \(target) HTTP/1.1\r\n"
+        headers += "Host: 127.0.0.1:\(profile.localPort)\r\n"
+        for (name, value) in request.headers.sorted(by: { $0.key < $1.key }) {
+            guard !["authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
             headers += "\(name): \(value)\r\n"
         }
-        headers += "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
-        try await sendAsync(connection, data: Data(headers.utf8))
+        headers += "User-Agent: MCP Controller\r\n"
+        headers += "Content-Length: \(request.body.count)\r\n"
+        headers += "Connection: close\r\n\r\n"
+        var data = Data(headers.utf8)
+        data.append(request.body)
+        return data
+    }
 
-        var buffer = Data()
-        var iterator = bytes.makeAsyncIterator()
-        while let byte = try await iterator.next() {
-            buffer.append(byte)
-            let shouldFlush = byte == 0x0A || buffer.count >= 256
-            if shouldFlush {
-                try await sendChunk(connection, body: buffer)
-                buffer.removeAll(keepingCapacity: true)
+    private func pipeUpstreamResponse(_ upstream: NWConnection, to client: NWConnection) {
+        upstream.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self else {
+                upstream.cancel()
+                client.cancel()
+                return
             }
-        }
-        if !buffer.isEmpty {
-            try await sendChunk(connection, body: buffer)
-        }
-        try await sendAsync(connection, data: Data("0\r\n\r\n".utf8))
-        connection.cancel()
-    }
-
-    private func sendChunk(_ connection: NWConnection, body: Data) async throws {
-        var chunk = Data(String(body.count, radix: 16).utf8)
-        chunk.append(Data("\r\n".utf8))
-        chunk.append(body)
-        chunk.append(Data("\r\n".utf8))
-        try await sendAsync(connection, data: chunk)
-    }
-
-    private func sendAsync(_ connection: NWConnection, data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: ()) }
-            })
+            if let data, !data.isEmpty {
+                client.send(content: data, completion: .contentProcessed { sendError in
+                    if sendError != nil {
+                        upstream.cancel()
+                        client.cancel()
+                    } else if isComplete || error != nil {
+                        upstream.cancel()
+                        client.cancel()
+                    } else {
+                        self.pipeUpstreamResponse(upstream, to: client)
+                    }
+                })
+            } else if isComplete || error != nil {
+                upstream.cancel()
+                client.cancel()
+            } else {
+                self.pipeUpstreamResponse(upstream, to: client)
+            }
         }
     }
 
@@ -444,6 +424,25 @@ private final class ExclusiveGateway: @unchecked Sendable {
 
     private func publishState() {
         stateHandler(arbiter.active, arbiter.pending.sorted { $0.requestedAt < $1.requestedAt })
+    }
+}
+
+enum GatewayRouteMapper {
+    static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
+        let mount = profile.normalizedMountPath
+        let endpoint = profile.streamableHTTPPath ?? "/"
+
+        if requestTarget == "/" || requestTarget == mount {
+            return endpoint
+        }
+        if mount != "/" {
+            let prefix = mount + "/"
+            if requestTarget.hasPrefix(prefix) {
+                let stripped = String(requestTarget.dropFirst(mount.count))
+                return stripped.isEmpty ? endpoint : stripped
+            }
+        }
+        return requestTarget
     }
 }
 
