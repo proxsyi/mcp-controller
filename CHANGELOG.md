@@ -4,6 +4,12 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.5
+
+### Fixed
+- Kept the Remote URL copy button enabled while the shared Tailscale Funnel is running.
+- Limited the live-route lock to editable audience, HTTPS port, and route-path controls instead of disabling the entire Remote access grid.
+
 ## v0.6.4
 
 ### Fixed
