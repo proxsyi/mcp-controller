@@ -6,9 +6,12 @@ final class AppModel: ObservableObject {
     @Published var selectedID: UUID?
     @Published private(set) var phases: [UUID: RuntimePhase] = [:]
     @Published private(set) var logs: [UUID: String] = [:]
+    @Published private(set) var gatewayLeases: [UUID: GatewayLeaseSnapshot] = [:]
+    @Published private(set) var pendingConnections: [UUID: [GatewayPendingSnapshot]] = [:]
     @Published var presentedError: String?
 
     private let store = ProfileStore()
+    private let gatewayManager = ExclusiveGatewayManager()
     private var processes: [UUID: Process] = [:]
     private var outputPipes: [UUID: [Pipe]] = [:]
 
@@ -17,6 +20,16 @@ final class AppModel: ObservableObject {
     }
 
     init() {
+        gatewayManager.onStateChange = { [weak self] profileID, active, pending in
+            Task { @MainActor in
+                if let active { self?.gatewayLeases[profileID] = active }
+                else { self?.gatewayLeases.removeValue(forKey: profileID) }
+                self?.pendingConnections[profileID] = pending
+            }
+        }
+        gatewayManager.onLog = { [weak self] profileID, message in
+            Task { @MainActor in self?.appendLog(profileID, message) }
+        }
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
@@ -30,6 +43,26 @@ final class AppModel: ObservableObject {
 
     func phase(for id: UUID) -> RuntimePhase {
         phases[id] ?? .stopped
+    }
+
+    func lease(for id: UUID) -> GatewayLeaseSnapshot? {
+        gatewayLeases[id]
+    }
+
+    func waiting(for id: UUID) -> [GatewayPendingSnapshot] {
+        pendingConnections[id] ?? []
+    }
+
+    func approve(profileID: UUID, clientID: String) {
+        gatewayManager.approve(profileID: profileID, clientID: clientID)
+    }
+
+    func deny(profileID: UUID, clientID: String) {
+        gatewayManager.deny(profileID: profileID, clientID: clientID)
+    }
+
+    func releaseLease(profileID: UUID) {
+        gatewayManager.release(profileID: profileID)
     }
 
     func add(_ profile: ServerProfile) {
@@ -49,6 +82,7 @@ final class AppModel: ObservableObject {
         copy.id = UUID()
         copy.name += " Copy"
         copy.autoStart = false
+        copy.clientCredentials = copy.clientCredentials.map { GatewayClientCredential.generate(name: $0.name) }
         add(copy)
     }
 
@@ -58,6 +92,8 @@ final class AppModel: ObservableObject {
             self.profiles.removeAll { $0.id == profile.id }
             self.phases.removeValue(forKey: profile.id)
             self.logs.removeValue(forKey: profile.id)
+            self.gatewayLeases.removeValue(forKey: profile.id)
+            self.pendingConnections.removeValue(forKey: profile.id)
             self.selectedID = self.profiles.first?.id
             self.persist()
         }
@@ -98,6 +134,7 @@ final class AppModel: ObservableObject {
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
                 guard let self else { return }
+                self.gatewayManager.stop(profileID: profile.id)
                 self.processes.removeValue(forKey: profile.id)
                 self.outputPipes.removeValue(forKey: profile.id)
                 if self.phase(for: profile.id) != .stopping {
@@ -125,13 +162,15 @@ final class AppModel: ObservableObject {
     private func finishStart(_ profile: ServerProfile) {
         guard processes[profile.id]?.isRunning == true else { return }
         do {
+            try gatewayManager.start(profile: profile)
             try enableExposure(profile)
             phases[profile.id] = .running
             appendLog(profile.id, exposureMessage(for: profile))
         } catch {
+            gatewayManager.stop(profileID: profile.id)
             processes[profile.id]?.terminate()
             phases[profile.id] = .failed(error.localizedDescription)
-            presentedError = "\(profile.name) started, but exposure failed and the process was stopped: \(error.localizedDescription)"
+            presentedError = "\(profile.name) started, but its gateway or exposure failed and the process was stopped: \(error.localizedDescription)"
         }
     }
 
@@ -145,13 +184,14 @@ final class AppModel: ObservableObject {
             return
         }
 
+        gatewayManager.stop(profileID: profile.id)
         if let process = processes[profile.id], process.isRunning {
             process.terminate()
         }
         processes.removeValue(forKey: profile.id)
         outputPipes.removeValue(forKey: profile.id)
         phases[profile.id] = .stopped
-        appendLog(profile.id, "Stopped and removed owned Tailscale route.\n")
+        appendLog(profile.id, "Stopped, released the AI lease, and removed the owned Tailscale route.\n")
         completion?()
     }
 
@@ -181,10 +221,11 @@ final class AppModel: ObservableObject {
     }
 
     private func exposureMessage(for profile: ServerProfile) -> String {
+        let gate = profile.exclusiveGatewayEnabled ? " through its exclusive AI gateway" : ""
         switch profile.exposureMode {
-        case .disabled: "Running locally on port \(profile.localPort).\n"
-        case .tailnet: "Running and exposed to the tailnet at \(profile.normalizedMountPath).\n"
-        case .funnel: "Running and publicly exposed through Funnel at \(profile.normalizedMountPath).\n"
+        case .disabled: "Running locally\(gate) on port \(profile.exposedLocalPort).\n"
+        case .tailnet: "Running\(gate) and exposed to the tailnet at \(profile.normalizedMountPath).\n"
+        case .funnel: "Running\(gate) and publicly exposed through Funnel at \(profile.normalizedMountPath).\n"
         }
     }
 

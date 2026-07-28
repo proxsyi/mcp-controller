@@ -203,7 +203,7 @@ struct ServerDetailView: View {
         VStack(spacing: 18) {
             ContentCard(title: "Endpoint", symbol: "point.3.connected.trianglepath.dotted") {
                 VStack(alignment: .leading, spacing: 16) {
-                    LabeledContent("Local HTTP port") {
+                    LabeledContent("Upstream MCP port") {
                         TextField("Port", value: $draft.localPort, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 110)
@@ -218,6 +218,8 @@ struct ServerDetailView: View {
                         .contentTransition(.interpolate)
                 }
             }
+
+            GatewayAccessView(profile: $draft)
 
             if draft.exposureMode != .disabled {
                 ContentCard(title: "Tailscale route", symbol: "shield.lefthalf.filled") {
@@ -258,6 +260,7 @@ struct ServerDetailView: View {
             }
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: draft.exposureMode)
+        .animation(AppMotion.standard(reduceMotion: reduceMotion), value: draft.exclusiveGatewayEnabled)
     }
 
     private var logsContent: some View {
@@ -284,18 +287,15 @@ struct ServerDetailView: View {
     }
 
     private var endpointSummary: String {
-        switch draft.exposureMode {
-        case .disabled: "Local · 127.0.0.1:\(draft.localPort)"
-        case .tailnet: "Tailnet · \(draft.normalizedMountPath)"
-        case .funnel: "Public Funnel · \(draft.normalizedMountPath)"
-        }
+        let access = draft.exclusiveGatewayEnabled ? "Exclusive" : draft.exposureMode.title
+        return "\(access) · 127.0.0.1:\(draft.exposedLocalPort)"
     }
 
     private var exposureExplanation: String {
         switch draft.exposureMode {
-        case .disabled: "Only this Mac can reach the endpoint."
-        case .tailnet: "Devices in your tailnet can reach the endpoint."
-        case .funnel: "The endpoint is public on the internet. Authentication must be enforced by the MCP server or bridge."
+        case .disabled: "Only this Mac can reach the selected endpoint."
+        case .tailnet: "Devices in your tailnet can reach the selected endpoint."
+        case .funnel: "The selected endpoint is public on the internet. Enable exclusive access and use separate keys for each AI."
         }
     }
 

@@ -16,6 +16,19 @@ enum ExposureMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
+    var id = UUID()
+    var name: String
+    var token: String
+
+    static func generate(name: String) -> GatewayClientCredential {
+        let token = [UUID(), UUID()]
+            .map { $0.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
+            .joined()
+        return GatewayClientCredential(name: name, token: token)
+    }
+}
+
 struct ServerProfile: Identifiable, Codable, Hashable {
     var id = UUID()
     var name = "New MCP Server"
@@ -30,12 +43,21 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     var tailscalePath = "/usr/local/bin/tailscale"
     var startupDelaySeconds = 1.0
     var autoStart = false
+    var exclusiveGatewayEnabled = false
+    var gatewayPort = 39000
+    var leaseTimeoutSeconds = 900
+    var allowedOrigins: [String] = []
+    var clientCredentials: [GatewayClientCredential] = []
 
     var normalizedMountPath: String {
         let trimmed = mountPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed == "/" { return "/" }
         let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
         return prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
+    }
+
+    var exposedLocalPort: Int {
+        exclusiveGatewayEnabled ? gatewayPort : localPort
     }
 
     func validationErrors() -> [String] {
@@ -55,7 +77,52 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         if exposureMode != .disabled && tailscalePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append("Tailscale CLI path is required when exposure is enabled.")
         }
+        if exclusiveGatewayEnabled {
+            if !(1...65535).contains(gatewayPort) {
+                errors.append("Gateway port must be between 1 and 65535.")
+            }
+            if gatewayPort == localPort {
+                errors.append("Gateway and upstream MCP ports must be different.")
+            }
+            if !(30...86_400).contains(leaseTimeoutSeconds) {
+                errors.append("Exclusive lease timeout must be between 30 seconds and 24 hours.")
+            }
+            if clientCredentials.isEmpty {
+                errors.append("Add at least one AI access key before enabling exclusive access.")
+            }
+        }
         return errors
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, executablePath, arguments, workingDirectory, environment
+        case localPort, exposureMode, publicPort, mountPath, tailscalePath
+        case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort
+        case leaseTimeoutSeconds, allowedOrigins, clientCredentials
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try values.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
+        executablePath = try values.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+        arguments = try values.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        workingDirectory = try values.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
+        environment = try values.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        localPort = try values.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
+        exposureMode = try values.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled
+        publicPort = try values.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443
+        mountPath = try values.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
+        tailscalePath = try values.decodeIfPresent(String.self, forKey: .tailscalePath) ?? "/usr/local/bin/tailscale"
+        startupDelaySeconds = try values.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1
+        autoStart = try values.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
+        exclusiveGatewayEnabled = try values.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
+        gatewayPort = try values.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
+        leaseTimeoutSeconds = try values.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900
+        allowedOrigins = try values.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
+        clientCredentials = try values.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
     }
 }
 

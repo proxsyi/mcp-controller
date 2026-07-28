@@ -15,6 +15,19 @@ final class TailscaleCommandBuilderTests: XCTestCase {
         )
     }
 
+    func testExclusiveGatewayBecomesTailscaleTarget() {
+        var profile = ServerProfile()
+        profile.localPort = 4123
+        profile.gatewayPort = 39001
+        profile.exclusiveGatewayEnabled = true
+        profile.exposureMode = .funnel
+
+        XCTAssertEqual(
+            TailscaleCommandBuilder.enableArguments(for: profile)?.last,
+            "http://127.0.0.1:39001"
+        )
+    }
+
     func testFunnelDisableRemovesOnlyOwnedMount() {
         var profile = ServerProfile()
         profile.publicPort = 443

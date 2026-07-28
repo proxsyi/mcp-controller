@@ -2,7 +2,7 @@ import Foundation
 
 enum TailscaleCommandBuilder {
     static func enableArguments(for profile: ServerProfile) -> [String]? {
-        let target = "http://127.0.0.1:\(profile.localPort)"
+        let target = "http://127.0.0.1:\(profile.exposedLocalPort)"
         switch profile.exposureMode {
         case .disabled:
             return nil
