@@ -260,7 +260,8 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func proxy(_ request: HTTPRequest, credential: GatewayClientCredential, connection: NWConnection) {
-        guard let url = URL(string: "http://127.0.0.1:\(profile.localPort)\(request.target)") else {
+        let target = upstreamTarget(for: request.target)
+        guard let url = URL(string: "http://127.0.0.1:\(profile.localPort)\(target)") else {
             sendError(connection, status: 502, message: "The upstream MCP URL is invalid.", requestID: request.jsonRPCID)
             return
         }
@@ -293,6 +294,18 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 self.sendError(connection, status: 502, message: "Upstream MCP is unavailable: \(error.localizedDescription)", requestID: request.jsonRPCID)
             }
         }
+    }
+
+    private func upstreamTarget(for requestTarget: String) -> String {
+        let mount = profile.normalizedMountPath
+        guard mount != "/" else { return requestTarget }
+        if requestTarget == mount { return "/" }
+        let prefix = mount + "/"
+        if requestTarget.hasPrefix(prefix) {
+            let stripped = String(requestTarget.dropFirst(mount.count))
+            return stripped.isEmpty ? "/" : stripped
+        }
+        return requestTarget
     }
 
     private func sendChunkedProxyResponse(
