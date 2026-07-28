@@ -16,5 +16,6 @@ struct MCPControllerApp: App {
             MenuBarView()
                 .environmentObject(model)
         }
+        .menuBarExtraStyle(.window)
     }
 }
