@@ -96,7 +96,7 @@ struct ServerDetailView: View {
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 19)
-        .background(.background.opacity(0.82))
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.82))
     }
 
     @ViewBuilder

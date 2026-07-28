@@ -43,7 +43,7 @@ extension View {
 struct ContentCard<Content: View>: View {
     let title: String
     let symbol: String
-    @ViewBuilder let content: Content
+    let content: Content
 
     init(title: String, symbol: String, @ViewBuilder content: () -> Content) {
         self.title = title
