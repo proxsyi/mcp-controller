@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     private var userStoppedProfiles: Set<UUID> = []
 
     var runningCount: Int { phases.values.filter(\.isActive).count }
+    var failedCount: Int { profiles.filter { phase(for: $0.id).isFailed }.count }
 
     init() {
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
@@ -27,17 +28,13 @@ final class AppModel: ObservableObject {
                 self?.pendingConnections[profileID] = pending
             }
         }
-        gatewayManager.onLog = { [weak self] profileID, message in
-            Task { @MainActor in self?.appendLog(profileID, message) }
-        }
+        gatewayManager.onLog = { [weak self] profileID, message in Task { @MainActor in self?.appendLog(profileID, message) } }
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
             reconcileExistingListeners()
             for profile in profiles where profile.autoStart && !phase(for: profile.id).isActive { start(profile) }
-        } catch {
-            presentedError = "Could not load server profiles: \(error.localizedDescription)"
-        }
+        } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
     }
 
     func phase(for id: UUID) -> RuntimePhase { phases[id] ?? .stopped }
@@ -46,6 +43,12 @@ final class AppModel: ObservableObject {
     func approve(profileID: UUID, clientID: String) { gatewayManager.approve(profileID: profileID, clientID: clientID) }
     func deny(profileID: UUID, clientID: String) { gatewayManager.deny(profileID: profileID, clientID: clientID) }
     func releaseLease(profileID: UUID) { gatewayManager.release(profileID: profileID) }
+
+    func acknowledgeFailureAndReturnLogs(for id: UUID) -> String {
+        let text = logs[id] ?? ""
+        if phase(for: id).isFailed { phases[id] = .stopped }
+        return text
+    }
 
     func add(_ profile: ServerProfile) { profiles.append(profile); selectedID = profile.id; persist() }
 
@@ -57,7 +60,13 @@ final class AppModel: ObservableObject {
 
     func duplicate(_ profile: ServerProfile) {
         var copy = profile
-        copy.id = UUID(); copy.name += " Copy"; copy.autoStart = false
+        copy.id = UUID()
+        copy.name += " Copy"
+        copy.autoStart = false
+        copy.tailscaleRouteEnabled = false
+        copy.localPort = nextAvailableLocalPort(startingAt: min(profile.localPort + 1, 65535))
+        copy.gatewayPort = nextAvailableGatewayPort()
+        copy.mountPath = uniqueMountPath(for: copy.name)
         copy.clientCredentials = copy.clientCredentials.map { GatewayClientCredential.generate(name: $0.name) }
         add(copy)
     }
@@ -79,6 +88,10 @@ final class AppModel: ObservableObject {
         guard !phase(for: profile.id).isActive else { return }
         let errors = profile.validationErrors()
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
+        if let conflict = profiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
+            fail(profile, "\(conflict.name) is already using MCP port \(profile.localPort).")
+            return
+        }
 
         if let listener = PortInspector.listener(on: profile.localPort) {
             if PortInspector.belongsToProfile(listener, profile: profile) { adopt(listener, for: profile) }
@@ -136,10 +149,8 @@ final class AppModel: ObservableObject {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             guard processes[profile.id]?.isRunning == true else { return }
-            if let listener = PortInspector.listener(on: profile.localPort),
-               PortInspector.belongsToProfile(listener, profile: profile) {
-                finishStart(profile)
-                return
+            if let listener = PortInspector.listener(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) {
+                finishStart(profile); return
             }
             try? await Task.sleep(for: .milliseconds(500))
         }
@@ -150,8 +161,7 @@ final class AppModel: ObservableObject {
 
     private func reconcileExistingListeners() {
         for profile in profiles {
-            guard let listener = PortInspector.listener(on: profile.localPort),
-                  PortInspector.belongsToProfile(listener, profile: profile) else { continue }
+            guard let listener = PortInspector.listener(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) else { continue }
             adopt(listener, for: profile)
         }
     }
@@ -181,6 +191,9 @@ final class AppModel: ObservableObject {
     }
 
     func stop(_ profile: ServerProfile, completion: (() -> Void)? = nil) {
+        guard phase(for: profile.id).isActive || adoptedListeners[profile.id] != nil else {
+            phases[profile.id] = .stopped; completion?(); return
+        }
         phases[profile.id] = .stopping
         do { try disableExposure(profile) }
         catch { fail(profile, "Could not remove exposure for \(profile.name): \(error.localizedDescription)"); return }
@@ -208,9 +221,9 @@ final class AppModel: ObservableObject {
     private func launchEnvironment(for profile: ServerProfile) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment.merging(profile.environment) { _, configured in configured }
         let standardPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-        let existingPaths = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        let existing = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         var seen = Set<String>()
-        environment["PATH"] = (standardPaths + existingPaths).filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")
+        environment["PATH"] = (standardPaths + existing).filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")
         return environment
     }
 
@@ -219,7 +232,6 @@ final class AppModel: ObservableObject {
         let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
         guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
     }
-
     private func disableExposure(_ profile: ServerProfile) throws {
         guard let arguments = TailscaleCommandBuilder.disableArguments(for: profile) else { return }
         let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
@@ -228,6 +240,7 @@ final class AppModel: ObservableObject {
 
     private func exposureMessage(for profile: ServerProfile) -> String {
         let gate = profile.exclusiveGatewayEnabled ? " through its exclusive AI gateway" : ""
+        guard profile.tailscaleRouteEnabled else { return "Running locally\(gate) on port \(profile.exposedLocalPort).\n" }
         return switch profile.exposureMode {
         case .disabled: "Running locally\(gate) on port \(profile.exposedLocalPort).\n"
         case .tailnet: "Running\(gate) and exposed to the tailnet at \(profile.normalizedMountPath).\n"
@@ -243,7 +256,6 @@ final class AppModel: ObservableObject {
             Task { @MainActor [weak self] in self?.appendLog(id, text) }
         }
     }
-
     private func appendLog(_ id: UUID, _ text: String) { logs[id] = String(((logs[id] ?? "") + text).suffix(100_000)) }
     private func persist() {
         do { try store.save(profiles) }
@@ -253,7 +265,5 @@ final class AppModel: ObservableObject {
 
 enum ControllerError: LocalizedError {
     case commandFailed(String)
-    var errorDescription: String? {
-        switch self { case .commandFailed(let message): message.trimmingCharacters(in: .whitespacesAndNewlines) }
-    }
+    var errorDescription: String? { switch self { case .commandFailed(let message): message.trimmingCharacters(in: .whitespacesAndNewlines) } }
 }
