@@ -1,12 +1,17 @@
 import SwiftUI
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General"
-    case tailscale = "Tailscale"
+    case app = "App"
+    case remoteAccess = "Remote access"
     case updates = "Updates"
+
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .general: "switch.2"; case .tailscale: "globe"; case .updates: "arrow.triangle.2.circlepath" }
+        switch self {
+        case .app: return "switch.2"
+        case .remoteAccess: return "globe"
+        case .updates: return "arrow.triangle.2.circlepath"
+        }
     }
 }
 
@@ -15,51 +20,62 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var updates: UpdateManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selection: SettingsSection = .general
+    @State private var selection: SettingsSection = .app
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Settings").font(.title2.weight(.semibold))
+                Text(selection.rawValue)
+                    .font(.title2.weight(.semibold))
                 Spacer()
                 Picker("Section", selection: $selection) {
                     ForEach(SettingsSection.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 360)
-            }.padding(20)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 380)
+            }
+            .padding(20)
+
             Divider()
+
             ZStack {
                 switch selection {
-                case .general: generalSettings.transition(.opacity.combined(with: .move(edge: .leading)))
-                case .tailscale: TailscaleSettingsView().transition(.opacity)
+                case .app: appSettings.transition(.opacity.combined(with: .move(edge: .leading)))
+                case .remoteAccess: TailscaleSettingsView().transition(.opacity)
                 case .updates: updateSettings.transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
             .animation(AppMotion.standard(reduceMotion: reduceMotion), value: selection)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.frame(width: 740, height: 560)
+        }
+        .frame(width: 760, height: 560)
     }
 
-    private var generalSettings: some View {
+    private var appSettings: some View {
         ScrollView {
             VStack(spacing: 18) {
-                settingsCard(title: "AI access", symbol: "person.badge.key") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Require one AI at a time on every server", isOn: $settings.oneAIOnly)
-                            .fontWeight(.medium)
-                            .onChange(of: settings.oneAIOnly) { _, enabled in model.applyGlobalOneAIPolicy(enabled) }
-                        Text("Creates an exclusive gateway and Primary AI key for each server. Running servers apply changes after restart.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
                 settingsCard(title: "Overview", symbol: "server.rack") {
                     HStack(spacing: 18) {
                         metric("Configured", model.profiles.count, .secondary)
                         metric("Running", model.runningCount, .green)
                         metric("Failed", model.failedCount, .red)
-                        metric("Tailscale", model.profiles.filter(\.tailscaleRouteEnabled).count, .blue)
+                        metric("Remote", model.profiles.filter(\.tailscaleRouteEnabled).count, .blue)
                     }
                 }
-            }.padding(24)
+
+                settingsCard(title: "Default access behavior", symbol: "lock.shield") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Protect every server with one AI at a time", isOn: $settings.oneAIOnly)
+                            .fontWeight(.medium)
+                            .onChange(of: settings.oneAIOnly) { _, enabled in model.applyGlobalOneAIPolicy(enabled) }
+                        Text("This is an app-wide default. Per-server remote client compatibility still stays in the Access tab.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(24)
         }
     }
 
@@ -91,18 +107,20 @@ struct SettingsView: View {
                         }
                     }
                 }
-                settingsCard(title: "Release channel", symbol: "shippingbox") {
-                    Label("Stable releases from proxsyi/mcp-controller", systemImage: "lock.shield").font(.callout)
-                }
-            }.padding(24)
+            }
+            .padding(24)
         }
     }
 
     private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown" }
     private func settingsCard<Content: View>(title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) { Label(title, systemImage: symbol).font(.headline); content() }
-            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: symbol).font(.headline)
+            content()
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
     }
     private func metric(_ title: String, _ value: Int, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
