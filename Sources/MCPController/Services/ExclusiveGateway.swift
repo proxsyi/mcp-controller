@@ -318,9 +318,10 @@ private final class ExclusiveGateway: @unchecked Sendable {
             profile: profile
         )
         let endpoint = "\(scheme)://\(host)\(publicTarget)"
-        let body = "event: endpoint\r\ndata: \(endpoint)\r\n\r\n" + ": connected\r\n\r\n"
-        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
-        let payload = Data((headers + body).utf8)
+        let body = Data(("event: endpoint\r\ndata: \(endpoint)\r\n\r\n" + ": connected\r\n\r\n").utf8)
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache, no-transform\r\nX-Accel-Buffering: no\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n"
+        var payload = Data(headers.utf8)
+        payload.append(HTTPChunkedBodyEncoder.encode(body))
         connection.send(content: payload, completion: .contentProcessed { error in
             if let error {
                 self.logHandler("Compatibility handshake failed: \(error.localizedDescription)\n")

@@ -4,6 +4,13 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.8
+
+### Fixed
+- Framed compatibility SSE responses with valid HTTP/1.1 chunked transfer encoding.
+- Disabled intermediary buffering and response transformation so endpoint events flush immediately through reverse proxies.
+- Prevented hosted clients from reporting generic SSE fetch failures after successful authentication and initialization.
+
 ## v0.6.7
 
 ### Fixed
