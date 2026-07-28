@@ -12,10 +12,14 @@ enum TailscaleCommandBuilder {
     }
 
     static func removeArguments(for profile: ServerProfile) -> [String]? {
+        removeArguments(for: profile, mountPath: profile.normalizedMountPath)
+    }
+
+    static func removeArguments(for profile: ServerProfile, mountPath: String) -> [String] {
         switch profile.exposureMode {
-        case .disabled: return nil
-        case .tailnet: return ["serve", "--https=\(profile.publicPort)", "--set-path=\(profile.normalizedMountPath)", "off"]
-        case .funnel: return ["funnel", "--https=\(profile.publicPort)", "--set-path=\(profile.normalizedMountPath)", "off"]
+        case .disabled: return []
+        case .tailnet: return ["serve", "--https=\(profile.publicPort)", "--set-path=\(mountPath)", "off"]
+        case .funnel: return ["funnel", "--https=\(profile.publicPort)", "--set-path=\(mountPath)", "off"]
         }
     }
 
