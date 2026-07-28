@@ -27,7 +27,6 @@ final class SettingsWindowCoordinator: ObservableObject {
         })
     }
 
-    /// Returns true when the shortcut was handled by closing or by the cooldown.
     func handleSettingsShortcut() -> Bool {
         guard let window, window.isVisible else {
             visibleSince = nil
@@ -41,7 +40,7 @@ final class SettingsWindowCoordinator: ObservableObject {
     }
 }
 
-private final class SettingsWindowProbeView: NSView {
+final class SettingsWindowProbeView: NSView {
     var onWindow: ((NSWindow) -> Void)?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

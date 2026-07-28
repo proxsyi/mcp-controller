@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MCPControllerApp: App {
+    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
     @StateObject private var settings = AppSettings()
     @StateObject private var updates = UpdateManager()
@@ -15,6 +16,7 @@ struct MCPControllerApp: App {
                 .environmentObject(updates)
                 .frame(minWidth: 980, minHeight: 640)
                 .onAppear {
+                    appDelegate.model = model
                     updates.beginAutomaticChecks()
                     if settings.oneAIOnly { model.applyGlobalOneAIPolicy(true) }
                 }
