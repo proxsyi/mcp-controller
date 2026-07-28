@@ -233,25 +233,46 @@ private final class ExclusiveGateway: @unchecked Sendable {
             return
         }
         if request.method == "GET" {
-            guard request.headers["mcp-session-id"] != nil else {
+            if let _ = request.headers["mcp-session-id"] {
+                guard arbiter.active != nil else {
+                    sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID)
+                    return
+                }
+                publishState()
+                proxy(request, connection: connection)
+                return
+            }
+
+            guard profile.remoteClientCompatibilityEnabled else {
                 sendError(connection, status: 405, message: "This MCP endpoint does not offer a pre-session SSE stream. Initialize with POST first, then retry GET with Mcp-Session-Id.", requestID: request.jsonRPCID)
                 return
             }
-            guard arbiter.active != nil else {
-                sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID)
+
+            guard let credential = authorizedCredential(for: request) else {
+                sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID)
                 return
             }
-            publishState()
-            proxy(request, connection: connection)
+
+            switch arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name) {
+            case .allowed:
+                publishState()
+                sendCompatibilityHandshake(request, connection: connection)
+            case .waiting:
+                publishState()
+                logHandler("\(credential.name) requested access while another AI holds the lease.\n")
+                sendError(
+                    connection,
+                    status: 409,
+                    message: "Connection in use. Please wait for user confirmation, then retry.",
+                    requestID: request.jsonRPCID,
+                    data: ["retryable": true, "state": "waiting_for_user_confirmation"]
+                )
+            }
             return
         }
-        guard let authorization = request.headers["authorization"], authorization.lowercased().hasPrefix("bearer ") else {
+
+        guard let credential = authorizedCredential(for: request) else {
             sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID)
-            return
-        }
-        let token = String(authorization.dropFirst(7)).trimmingCharacters(in: .whitespaces)
-        guard let credential = profile.clientCredentials.first(where: { $0.token == token }) else {
-            sendError(connection, status: 401, message: "The MCP Controller access key is invalid.", requestID: request.jsonRPCID)
             return
         }
 
@@ -270,6 +291,37 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 data: ["retryable": true, "state": "waiting_for_user_confirmation"]
             )
         }
+    }
+
+    private func authorizedCredential(for request: HTTPRequest) -> GatewayClientCredential? {
+        guard let authorization = request.headers["authorization"], authorization.lowercased().hasPrefix("bearer ") else {
+            return nil
+        }
+        let token = String(authorization.dropFirst(7)).trimmingCharacters(in: .whitespaces)
+        return profile.clientCredentials.first(where: { $0.token == token })
+    }
+
+    private func sendCompatibilityHandshake(_ request: HTTPRequest, connection: NWConnection) {
+        let forwardedProto = request.headers["x-forwarded-proto"]
+        let host = request.headers["x-forwarded-host"] ?? request.headers["host"] ?? "127.0.0.1:\(profile.gatewayPort)"
+        let scheme: String
+        if let forwardedProto, !forwardedProto.isEmpty {
+            scheme = forwardedProto
+        } else if host.contains("127.0.0.1") || host.contains("localhost") {
+            scheme = "http"
+        } else {
+            scheme = "https"
+        }
+        let endpoint = "\(scheme)://\(host)\(request.target)"
+        let body = "event: endpoint\r\ndata: \(endpoint)\r\n\r\n" + ": connected\r\n\r\n"
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
+        let payload = Data((headers + body).utf8)
+        connection.send(content: payload, completion: .contentProcessed { error in
+            if let error {
+                self.logHandler("Compatibility handshake failed: \(error.localizedDescription)\n")
+                connection.cancel()
+            }
+        })
     }
 
     private func proxy(_ request: HTTPRequest, connection: NWConnection) {
