@@ -1,0 +1,46 @@
+name: Publish v0.6.5
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-v0.6.5.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Test
+        run: swift test
+
+      - name: Build
+        run: bash scripts/build-app.sh
+
+      - name: Sign
+        env:
+          IDENTITY: ${{ secrets.MACOS_CODE_SIGN_IDENTITY }}
+        run: |
+          if [[ -n "$IDENTITY" ]]; then
+            codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "dist/MCP Controller.app"
+          else
+            codesign --force --deep --sign - --identifier com.versyi.mcp-controller "dist/MCP Controller.app"
+          fi
+          codesign --verify --deep --strict --verbose=2 "dist/MCP Controller.app"
+
+      - name: Package
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/MCP Controller.app" "dist/MCP-Controller-macOS.zip"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create v0.6.5 "dist/MCP-Controller-macOS.zip" --target "$GITHUB_SHA" --generate-notes --title "MCP Controller v0.6.5"
