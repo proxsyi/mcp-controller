@@ -1,4 +1,4 @@
-name: Fix compatibility endpoint and release v0.6.6
+name: Fix generic compatibility endpoint and release v0.6.6
 
 on:
   push:
@@ -22,18 +22,20 @@ jobs:
         with:
           xcode-version: "26.0"
 
-      - name: Apply compatibility endpoint fix
+      - name: Apply generic reverse-proxy compatibility fix
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           gateway = Path("Sources/MCPController/Services/ExclusiveGateway.swift")
           text = gateway.read_text()
-          old = '''        let endpoint = "\\(scheme)://\\(host)\\(request.target)"
-'''
-          new = '''        let publicTarget = GatewayRouteMapper.publicTarget(for: request.target, profile: profile)
-        let endpoint = "\\(scheme)://\\(host)\\(publicTarget)"
-'''
+          old = r'''        let endpoint = "\(scheme)://\(host)\(request.target)"'''
+          new = r'''        let publicTarget = GatewayRouteMapper.publicTarget(
+            for: request.target,
+            forwardedPrefix: request.headers["x-forwarded-prefix"],
+            profile: profile
+        )
+        let endpoint = "\(scheme)://\(host)\(publicTarget)"'''
           if old not in text:
               raise SystemExit("Compatibility endpoint line not found")
           text = text.replace(old, new, 1)
@@ -42,11 +44,29 @@ jobs:
     static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
 '''
           replacement = '''enum GatewayRouteMapper {
-    static func publicTarget(for requestTarget: String, profile: ServerProfile) -> String {
-        if requestTarget == "/" || requestTarget == profile.normalizedMountPath {
-            return profile.normalizedMountPath
+    static func publicTarget(
+        for requestTarget: String,
+        forwardedPrefix: String? = nil,
+        profile: ServerProfile
+    ) -> String {
+        let pieces = requestTarget.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pieces.first.map(String.init) ?? "/"
+        let query = pieces.count > 1 ? "?" + pieces[1] : ""
+
+        if let forwardedPrefix {
+            let firstPrefix = forwardedPrefix.split(separator: ",", maxSplits: 1).first.map(String.init) ?? ""
+            let trimmed = firstPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+                let normalizedPrefix = prefixed.count > 1 && prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
+                if path == "/" { return normalizedPrefix + query }
+                if path == normalizedPrefix || path.hasPrefix(normalizedPrefix + "/") { return path + query }
+            }
         }
-        return requestTarget
+
+        let mount = profile.normalizedMountPath
+        if path == "/" || path == mount { return mount + query }
+        return path + query
     }
 
     static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
@@ -58,12 +78,29 @@ jobs:
           tests = Path("Tests/MCPControllerTests/GatewayRouteMapperTests.swift")
           text = tests.read_text()
           addition = '''
-    func testCompatibilityHandshakeRestoresStrippedPublicMount() {
+    func testCompatibilityRestoresMountAfterProxyStripsPrefix() {
         var profile = ServerProfile()
         profile.mountPath = "/mcp/remote"
 
         XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/", profile: profile), "/mcp/remote")
-        XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/mcp/remote", profile: profile), "/mcp/remote")
+        XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/?probe=1", profile: profile), "/mcp/remote?probe=1")
+    }
+
+    func testCompatibilityUsesStandardForwardedPrefixWhenAvailable() {
+        var profile = ServerProfile()
+        profile.mountPath = "/fallback"
+
+        XCTAssertEqual(
+            GatewayRouteMapper.publicTarget(for: "/", forwardedPrefix: "/external/mcp/", profile: profile),
+            "/external/mcp"
+        )
+    }
+
+    func testCompatibilityPreservesAlreadyPublicTarget() {
+        var profile = ServerProfile()
+        profile.mountPath = "/mcp/server"
+
+        XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/mcp/server", profile: profile), "/mcp/server")
     }
 '''
           index = text.rfind("\n}")
@@ -79,8 +116,9 @@ jobs:
 ## v0.6.6
 
 ### Fixed
-- Restored each server’s public mount path in the compatibility SSE endpoint advertised through a Tailscale-stripped route.
-- Prevented remote validators from following an incorrect host-root endpoint after a successful compatibility preflight.
+- Made compatibility mode reconstruct canonical public endpoints after any path-prefix reverse proxy strips the external mount.
+- Added standard `X-Forwarded-Prefix` support with a per-profile mount-path fallback.
+- Preserved query strings and already-canonical public paths in compatibility handshakes.
 """
           if marker not in text:
               raise SystemExit("CHANGELOG marker missing")
@@ -100,7 +138,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Sources/MCPController/Services/ExclusiveGateway.swift Tests/MCPControllerTests/GatewayRouteMapperTests.swift Resources/Info.plist CHANGELOG.md
-          git commit -m "fix(gateway): advertise canonical compatibility endpoint"
+          git commit -m "fix(gateway): preserve public endpoint through proxies"
           git push origin HEAD:main
 
       - name: Sign and package
