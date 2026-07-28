@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var updates: UpdateManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingAddServer = false
     @State private var searchText = ""
@@ -23,18 +24,14 @@ struct RootView: View {
                         ServerRow(profile: profile, phase: model.phase(for: profile.id))
                             .tag(profile.id)
                             .contextMenu {
-                                Button("Start", systemImage: "play.fill") { model.start(profile) }
-                                    .disabled(model.phase(for: profile.id).isActive)
-                                Button("Stop", systemImage: "stop.fill") { model.stop(profile) }
-                                    .disabled(!model.phase(for: profile.id).isActive)
+                                Button("Start", systemImage: "play.fill") { model.start(profile) }.disabled(model.phase(for: profile.id).isActive)
+                                Button("Stop", systemImage: "stop.fill") { model.stop(profile) }.disabled(!model.phase(for: profile.id).isActive)
                                 Divider()
                                 Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicate(profile) }
                                 Button("Remove", systemImage: "trash", role: .destructive) { model.remove(profile) }
                             }
                     }
-                } header: {
-                    sidebarSummary
-                }
+                } header: { sidebarSummary }
             }
             .navigationTitle("MCP Servers")
             .searchable(text: $searchText, placement: .sidebar, prompt: "Find a server")
@@ -45,42 +42,51 @@ struct RootView: View {
                     } description: {
                         Text("Add an MCP server or HTTP bridge. You control when it runs and where it is exposed.")
                     } actions: {
-                        Button("Add Server", systemImage: "plus") { showingAddServer = true }
-                            .buttonStyle(.borderedProminent)
+                        Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
                     }
-                } else if filteredProfiles.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                }
+                } else if filteredProfiles.isEmpty { ContentUnavailableView.search(text: searchText) }
             }
             .toolbar {
                 ToolbarItem {
-                    Button("Add server", systemImage: "plus") { showingAddServer = true }
-                        .help("Add an MCP server")
+                    Button("Add server", systemImage: "plus") { showingAddServer = true }.help("Add an MCP server")
                 }
+                ToolbarItem { updateMenu }
             }
         } detail: {
             ZStack {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
-                if let id = model.selectedID,
-                   let profile = model.profiles.first(where: { $0.id == id }) {
-                    ServerDetailView(profile: profile)
-                        .id(profile.id)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                if let id = model.selectedID, let profile = model.profiles.first(where: { $0.id == id }) {
+                    ServerDetailView(profile: profile).id(profile.id).transition(.opacity.combined(with: .move(edge: .trailing)))
                 } else {
                     ContentUnavailableView("Select a server", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure or control it."))
                 }
             }
             .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
-        .sheet(isPresented: $showingAddServer) {
-            AddServerView()
-                .environmentObject(model)
-        }
+        .sheet(isPresented: $showingAddServer) { AddServerView().environmentObject(model) }
         .alert("MCP Controller", isPresented: Binding(get: { model.presentedError != nil }, set: { if !$0 { model.presentedError = nil } })) {
             Button("OK") { model.presentedError = nil }
-        } message: {
-            Text(model.presentedError ?? "")
+        } message: { Text(model.presentedError ?? "") }
+    }
+
+    private var updateMenu: some View {
+        Menu {
+            Button("Check for Updates", systemImage: "arrow.triangle.2.circlepath") { updates.checkForUpdates() }
+                .disabled(updates.isChecking || updates.isInstalling)
+            if updates.updateAvailable {
+                Button("Update to \(updates.availableVersion ?? "latest")", systemImage: "arrow.down.circle.fill") {
+                    updates.installAvailableUpdate()
+                }
+                .disabled(updates.isInstalling)
+            }
+            if !updates.statusMessage.isEmpty {
+                Divider()
+                Text(updates.statusMessage)
+            }
+        } label: {
+            Label("Updates", systemImage: updates.updateAvailable ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
         }
+        .help(updates.updateAvailable ? "An update is available" : "Check for updates")
     }
 
     private var sidebarSummary: some View {
@@ -89,17 +95,10 @@ struct RootView: View {
             Spacer(minLength: 16)
             if model.runningCount > 0 {
                 Label("\(model.runningCount)", systemImage: "bolt.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .contentTransition(.numericText())
-                    .fixedSize()
+                    .font(.caption.weight(.semibold)).foregroundStyle(.green).contentTransition(.numericText()).fixedSize()
             }
         }
-        .textCase(nil)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.vertical, 4)
-        .padding(.trailing, 12)
+        .textCase(nil).font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).padding(.trailing, 12)
     }
 }
 
@@ -112,47 +111,26 @@ private struct ServerRow: View {
     var body: some View {
         HStack(spacing: 11) {
             ZStack {
-                Circle()
-                    .fill(statusColor.opacity(0.16))
-                    .frame(width: 30, height: 30)
+                Circle().fill(statusColor.opacity(0.16)).frame(width: 30, height: 30)
                 Image(systemName: profile.exposureMode == .funnel ? "globe" : profile.exposureMode == .tailnet ? "point.3.connected.trianglepath.dotted" : "server.rack")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(statusColor)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(statusColor)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(profile.name)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                Text(profile.name).fontWeight(.medium).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 8)
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .accessibilityLabel(phase.title)
+            Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityLabel(phase.title)
         }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
-        .onHover { isHovering in
-            withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = isHovering }
-        }
+        .padding(.vertical, 5).contentShape(Rectangle()).scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
+        .onHover { value in withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = value } }
     }
 
     private var subtitle: String {
         let trimmed = profile.description.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? profile.exposureMode.title : trimmed
     }
-
     private var statusColor: Color {
-        switch phase {
-        case .running: .green
-        case .starting, .stopping: .orange
-        case .failed: .red
-        case .stopped: .secondary
-        }
+        switch phase { case .running: .green; case .starting, .stopping: .orange; case .failed: .red; case .stopped: .secondary }
     }
 }
