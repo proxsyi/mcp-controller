@@ -5,10 +5,19 @@ struct AddServerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var profile = ServerProfile()
+    @State private var localPortText = ""
+
+    private var resolvedLocalPort: Int? {
+        let trimmed = localPortText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return 3000 }
+        guard let port = Int(trimmed), (1...65535).contains(port) else { return nil }
+        return port
+    }
 
     private var canAdd: Bool {
         !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !profile.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !profile.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        resolvedLocalPort != nil
     }
 
     var body: some View {
@@ -54,9 +63,12 @@ struct AddServerView: View {
                     ContentCard(title: "Connection", symbol: "network") {
                         VStack(alignment: .leading, spacing: 16) {
                             LabeledContent("Local HTTP port") {
-                                TextField("Port", value: $profile.localPort, format: .number)
+                                TextField("3000", text: $localPortText)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 110)
+                                    .onChange(of: localPortText) { _, value in
+                                        localPortText = value.filter(\.isNumber)
+                                    }
                             }
                             Picker("Exposure", selection: $profile.exposureMode) {
                                 ForEach(ExposureMode.allCases) { mode in Text(mode.title).tag(mode) }
@@ -82,6 +94,7 @@ struct AddServerView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add Server", systemImage: "plus") {
+                        profile.localPort = resolvedLocalPort ?? 3000
                         model.add(profile)
                         dismiss()
                     }
