@@ -36,6 +36,10 @@ struct AddServerView: View {
                                 TextField("Desktop control", text: $profile.name)
                             }
                             GridRow {
+                                Text("Description").foregroundStyle(.secondary)
+                                TextField("What this server is for", text: $profile.description)
+                            }
+                            GridRow {
                                 Text("Executable").foregroundStyle(.secondary)
                                 TextField("/absolute/path/to/executable", text: $profile.executablePath)
                             }
