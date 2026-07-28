@@ -4,12 +4,13 @@ struct MenuBarView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("MCP Controller").font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("MCP Controller")
+                        .font(.headline)
                     Text(model.runningCount == 0 ? "Everything is stopped" : "\(model.runningCount) running")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .contentTransition(.numericText())
                 }
@@ -21,37 +22,44 @@ struct MenuBarView: View {
             if model.profiles.isEmpty {
                 Label("No servers configured", systemImage: "server.rack")
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
             } else {
                 ForEach(model.profiles) { profile in
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         Circle()
                             .fill(statusColor(model.phase(for: profile.id)))
                             .frame(width: 7, height: 7)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(profile.name).lineLimit(1)
-                            Text(profile.exposureMode.title)
-                                .font(.caption)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(profile.name)
+                                .lineLimit(1)
+                            Text(subtitle(for: profile))
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(2)
                         }
-                        Spacer()
-                        if model.phase(for: profile.id).isActive {
-                            Button("Stop") { model.stop(profile) }
-                                .controlSize(.small)
-                        } else {
-                            Button("Start") { model.start(profile) }
-                                .controlSize(.small)
+                        Spacer(minLength: 6)
+                        Button {
+                            model.phase(for: profile.id).isActive ? model.stop(profile) : model.start(profile)
+                        } label: {
+                            Image(systemName: model.phase(for: profile.id).isActive ? "stop.fill" : "play.fill")
                         }
+                        .buttonStyle(.borderless)
+                        .help(model.phase(for: profile.id).isActive ? "Stop \(profile.name)" : "Start \(profile.name)")
                     }
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 2)
                 }
                 Divider()
                 Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }
                     .disabled(model.runningCount == 0)
             }
         }
-        .padding(14)
-        .frame(width: 340)
+        .padding(12)
+        .frame(width: 292)
+    }
+
+    private func subtitle(for profile: ServerProfile) -> String {
+        let trimmed = profile.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? profile.exposureMode.title : trimmed
     }
 
     private func statusColor(_ phase: RuntimePhase) -> Color {
