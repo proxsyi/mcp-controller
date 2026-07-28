@@ -86,18 +86,20 @@ struct RootView: View {
     private var sidebarSummary: some View {
         HStack {
             Text(model.profiles.isEmpty ? "Configured" : "\(model.profiles.count) configured")
-            Spacer()
+            Spacer(minLength: 16)
             if model.runningCount > 0 {
                 Label("\(model.runningCount)", systemImage: "bolt.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.green)
                     .contentTransition(.numericText())
+                    .fixedSize()
             }
         }
         .textCase(nil)
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.vertical, 4)
+        .padding(.trailing, 12)
     }
 }
 
