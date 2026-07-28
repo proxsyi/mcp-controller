@@ -34,9 +34,7 @@ final class AppModel: ObservableObject {
             profiles = try store.load()
             selectedID = profiles.first?.id
             reconcileExistingListeners()
-            for profile in profiles where profile.autoStart && !phase(for: profile.id).isActive {
-                start(profile)
-            }
+            for profile in profiles where profile.autoStart && !phase(for: profile.id).isActive { start(profile) }
         } catch {
             presentedError = "Could not load server profiles: \(error.localizedDescription)"
         }
@@ -49,11 +47,7 @@ final class AppModel: ObservableObject {
     func deny(profileID: UUID, clientID: String) { gatewayManager.deny(profileID: profileID, clientID: clientID) }
     func releaseLease(profileID: UUID) { gatewayManager.release(profileID: profileID) }
 
-    func add(_ profile: ServerProfile) {
-        profiles.append(profile)
-        selectedID = profile.id
-        persist()
-    }
+    func add(_ profile: ServerProfile) { profiles.append(profile); selectedID = profile.id; persist() }
 
     func update(_ profile: ServerProfile) {
         guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
@@ -63,9 +57,7 @@ final class AppModel: ObservableObject {
 
     func duplicate(_ profile: ServerProfile) {
         var copy = profile
-        copy.id = UUID()
-        copy.name += " Copy"
-        copy.autoStart = false
+        copy.id = UUID(); copy.name += " Copy"; copy.autoStart = false
         copy.clientCredentials = copy.clientCredentials.map { GatewayClientCredential.generate(name: $0.name) }
         add(copy)
     }
@@ -89,14 +81,10 @@ final class AppModel: ObservableObject {
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
 
         if let listener = PortInspector.listener(on: profile.localPort) {
-            if PortInspector.belongsToProfile(listener, profile: profile) {
-                adopt(listener, for: profile)
-            } else {
-                fail(profile, "Port \(profile.localPort) is already used by PID \(listener.pid): \(listener.command)")
-            }
+            if PortInspector.belongsToProfile(listener, profile: profile) { adopt(listener, for: profile) }
+            else { fail(profile, "Port \(profile.localPort) is already used by PID \(listener.pid): \(listener.command)") }
             return
         }
-
         guard FileManager.default.isExecutableFile(atPath: profile.executablePath) else {
             fail(profile, "The executable does not exist or is not executable: \(profile.executablePath)")
             return
@@ -126,6 +114,8 @@ final class AppModel: ObservableObject {
                 if wasUserStop || self.phase(for: profile.id) == .stopping || self.phase(for: profile.id) == .stopped {
                     self.phases[profile.id] = .stopped
                     self.appendLog(profile.id, "Process stopped.\n")
+                } else if case .failed = self.phase(for: profile.id) {
+                    self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
                 } else {
                     self.phases[profile.id] = process.terminationStatus == 0 ? .stopped : .failed("Exited with code \(process.terminationStatus)")
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
@@ -137,11 +127,25 @@ final class AppModel: ObservableObject {
             try process.run()
             processes[profile.id] = process
             outputPipes[profile.id] = [output, error]
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(profile.startupDelaySeconds))
-                self?.finishStart(profile)
-            }
+            Task { @MainActor [weak self] in await self?.waitForListener(profile) }
         } catch { fail(profile, "Could not start \(profile.name): \(error.localizedDescription)") }
+    }
+
+    private func waitForListener(_ profile: ServerProfile) async {
+        let timeout = max(15.0, profile.startupDelaySeconds)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            guard processes[profile.id]?.isRunning == true else { return }
+            if let listener = PortInspector.listener(on: profile.localPort),
+               PortInspector.belongsToProfile(listener, profile: profile) {
+                finishStart(profile)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        guard processes[profile.id]?.isRunning == true else { return }
+        fail(profile, "\(profile.name) did not open port \(profile.localPort) within \(Int(timeout)) seconds.")
+        processes[profile.id]?.terminate()
     }
 
     private func reconcileExistingListeners() {
@@ -164,11 +168,6 @@ final class AppModel: ObservableObject {
 
     private func finishStart(_ profile: ServerProfile) {
         guard processes[profile.id]?.isRunning == true else { return }
-        guard let listener = PortInspector.listener(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) else {
-            fail(profile, "\(profile.name) did not open port \(profile.localPort) before the startup delay expired.")
-            processes[profile.id]?.terminate()
-            return
-        }
         do {
             try gatewayManager.start(profile: profile)
             try enableExposure(profile)
@@ -176,8 +175,8 @@ final class AppModel: ObservableObject {
             appendLog(profile.id, exposureMessage(for: profile))
         } catch {
             gatewayManager.stop(profileID: profile.id)
-            processes[profile.id]?.terminate()
             fail(profile, "\(profile.name) started, but its gateway or exposure failed: \(error.localizedDescription)")
+            processes[profile.id]?.terminate()
         }
     }
 
@@ -191,9 +190,7 @@ final class AppModel: ObservableObject {
         if let listener = adoptedListeners.removeValue(forKey: profile.id) {
             do { try PortInspector.terminate(listener) }
             catch { fail(profile, "Could not stop adopted PID \(listener.pid): \(error.localizedDescription)"); return }
-        } else if let process = processes[profile.id], process.isRunning {
-            process.terminate()
-        }
+        } else if let process = processes[profile.id], process.isRunning { process.terminate() }
         processes.removeValue(forKey: profile.id)
         outputPipes.removeValue(forKey: profile.id)
         phases[profile.id] = .stopped
@@ -205,9 +202,7 @@ final class AppModel: ObservableObject {
     func clearLog(for id: UUID) { logs[id] = "" }
 
     private func fail(_ profile: ServerProfile, _ message: String) {
-        phases[profile.id] = .failed(message)
-        presentedError = message
-        appendLog(profile.id, message + "\n")
+        phases[profile.id] = .failed(message); presentedError = message; appendLog(profile.id, message + "\n")
     }
 
     private func launchEnvironment(for profile: ServerProfile) -> [String: String] {
@@ -249,10 +244,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func appendLog(_ id: UUID, _ text: String) {
-        logs[id] = String(((logs[id] ?? "") + text).suffix(100_000))
-    }
-
+    private func appendLog(_ id: UUID, _ text: String) { logs[id] = String(((logs[id] ?? "") + text).suffix(100_000)) }
     private func persist() {
         do { try store.save(profiles) }
         catch { presentedError = "Could not save server profiles: \(error.localizedDescription)" }
