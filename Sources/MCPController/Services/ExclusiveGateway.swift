@@ -312,7 +312,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
         } else {
             scheme = "https"
         }
-        let endpoint = "\(scheme)://\(host)\(request.target)"
+        let publicTarget = GatewayRouteMapper.publicTarget(
+            for: request.target,
+            forwardedPrefix: request.headers["x-forwarded-prefix"],
+            profile: profile
+        )
+        let endpoint = "\(scheme)://\(host)\(publicTarget)"
         let body = "event: endpoint\r\ndata: \(endpoint)\r\n\r\n" + ": connected\r\n\r\n"
         let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
         let payload = Data((headers + body).utf8)
@@ -428,6 +433,31 @@ private final class ExclusiveGateway: @unchecked Sendable {
 }
 
 enum GatewayRouteMapper {
+    static func publicTarget(
+        for requestTarget: String,
+        forwardedPrefix: String? = nil,
+        profile: ServerProfile
+    ) -> String {
+        let pieces = requestTarget.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pieces.isEmpty ? "/" : String(pieces[0])
+        let query = pieces.count > 1 ? "?" + String(pieces[1]) : ""
+
+        if let forwardedPrefix {
+            let firstPrefix = forwardedPrefix.split(separator: ",", maxSplits: 1).first.map(String.init) ?? ""
+            let trimmed = firstPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+                let normalizedPrefix = prefixed.count > 1 && prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
+                if path == "/" { return normalizedPrefix + query }
+                if path == normalizedPrefix || path.hasPrefix(normalizedPrefix + "/") { return path + query }
+            }
+        }
+
+        let mount = profile.normalizedMountPath
+        if path == "/" || path == mount { return mount + query }
+        return path + query
+    }
+
     static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
         let mount = profile.normalizedMountPath
         let endpoint = profile.streamableHTTPPath ?? "/"

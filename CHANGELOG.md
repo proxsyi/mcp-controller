@@ -4,6 +4,13 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.6
+
+### Fixed
+- Made compatibility mode reconstruct canonical public endpoints after any path-prefix reverse proxy strips the external mount.
+- Added standard `X-Forwarded-Prefix` support with the profile mount path as a safe fallback.
+- Preserved query strings and already-canonical paths in compatibility handshakes.
+
 ## v0.6.5
 
 ### Fixed
