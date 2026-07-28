@@ -10,12 +10,12 @@ struct GatewayAccessView: View {
     @State private var showAdvanced = false
 
     var body: some View {
-        ContentCard(title: "AI access", symbol: "person.badge.key") {
+        ContentCard(title: "Access control", symbol: "lock.shield") {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("One AI at a time").fontWeight(.medium)
-                        Text(profile.exclusiveGatewayEnabled ? "Protected by access keys and an exclusive lease." : "Direct access without MCP Controller authentication.")
+                        Text(profile.exclusiveGatewayEnabled ? "Protect this route with access keys and an exclusive lease." : "Allow direct remote access without a controller-issued key.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -35,6 +35,10 @@ struct GatewayAccessView: View {
                     DisclosureGroup("Advanced gateway settings", isExpanded: $showAdvanced) {
                         advancedSettings.padding(.top, 10)
                     }
+                } else {
+                    Label("Remote clients connect directly to this server when exposure is enabled.", systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if isRunning {
@@ -51,8 +55,7 @@ struct GatewayAccessView: View {
     }
 
     private var compactLeaseStatus: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
+        VStack(alignment: .leading, spacing: 10) {
             if let lease = model.lease(for: profile.id) {
                 HStack {
                     Label("\(lease.clientName) is connected", systemImage: "checkmark.shield.fill")
@@ -63,7 +66,7 @@ struct GatewayAccessView: View {
                         .controlSize(.small)
                 }
             } else {
-                Label("Ready for an AI connection", systemImage: "shield.checkered")
+                Label(profile.remoteClientCompatibilityEnabled ? "Ready for remote clients" : "Ready for a client connection", systemImage: "shield.checkered")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -80,6 +83,7 @@ struct GatewayAccessView: View {
                 .controlSize(.small)
             }
         }
+        .padding(.top, 2)
     }
 
     private var credentials: some View {
@@ -115,7 +119,7 @@ struct GatewayAccessView: View {
             .disabled(isRunning)
 
             if profile.clientCredentials.isEmpty {
-                Label("Add a key before starting this server.", systemImage: "exclamationmark.triangle")
+                Label("Add an access key before starting a protected route.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -123,24 +127,30 @@ struct GatewayAccessView: View {
     }
 
     private var advancedSettings: some View {
-        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-            GridRow {
-                Text("Gateway port").foregroundStyle(.secondary)
-                TextField("39000", text: gatewayPortBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
-                    .disabled(isRunning)
-            }
-            GridRow {
-                Text("Lease timeout").foregroundStyle(.secondary)
-                Stepper("\(profile.leaseTimeoutSeconds / 60) minutes", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
-                    .disabled(isRunning)
-            }
-            GridRow {
-                Text("Allowed origins").foregroundStyle(.secondary)
-                TextField("Optional, comma separated", text: $originText)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(isRunning)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Only change these values if you need a non-default gateway setup.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                GridRow {
+                    Text("Gateway port").foregroundStyle(.secondary)
+                    TextField("39000", text: gatewayPortBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .disabled(isRunning)
+                }
+                GridRow {
+                    Text("Lease timeout").foregroundStyle(.secondary)
+                    Stepper("\(profile.leaseTimeoutSeconds / 60) minutes", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
+                        .disabled(isRunning)
+                }
+                GridRow {
+                    Text("Allowed origins").foregroundStyle(.secondary)
+                    TextField("Optional, comma separated", text: $originText)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isRunning)
+                }
             }
         }
     }

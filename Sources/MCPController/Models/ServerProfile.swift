@@ -19,6 +19,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     var localPort = 3000; var exposureMode: ExposureMode = .disabled; var tailscaleRouteEnabled = false
     var publicPort = 443; var mountPath = "/"; var tailscalePath = TailscaleRouteService.defaultCLIPath
     var startupDelaySeconds = 1.0; var autoStart = false; var exclusiveGatewayEnabled = false
+    var remoteClientCompatibilityEnabled = false
     var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var allowedOrigins: [String] = []
     var clientCredentials: [GatewayClientCredential] = []
 
@@ -50,7 +51,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, description, executablePath, arguments, workingDirectory, environment, localPort, exposureMode
         case tailscaleRouteEnabled, publicPort, mountPath, tailscalePath, startupDelaySeconds, autoStart
-        case exclusiveGatewayEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
+        case exclusiveGatewayEnabled, remoteClientCompatibilityEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -64,7 +65,9 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
         tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
         startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1; autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
-        exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false; gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
+        exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
+        remoteClientCompatibilityEnabled = try v.decodeIfPresent(Bool.self, forKey: .remoteClientCompatibilityEnabled) ?? false
+        gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
         leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900; allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
         clientCredentials = try v.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
     }
