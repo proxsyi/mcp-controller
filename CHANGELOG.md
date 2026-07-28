@@ -4,6 +4,21 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.4
+
+### Fixed
+- Mapped Tailscale-stripped route roots to each server’s actual Streamable HTTP endpoint.
+- Detected the default `/mcp` endpoint used by servers configured with `--transport streamable-http`.
+- Added chunked HTTP request decoding so HTTP/2 requests forwarded by Tailscale Funnel validate correctly.
+- Replaced buffered SSE forwarding with a raw streaming proxy and kept upstream MCP streams open.
+- Preserved canonical public URLs such as `/mcp/macos` and `/mcp/remote` without requiring an extra `/mcp` suffix.
+
+### Added
+- Regression tests for explicit and inferred MCP route mapping.
+- Tests for chunked request bodies, chunk extensions, and incomplete chunks.
+- End-to-end MCP health diagnostics covering processes, ports, routes, Funnel state, authentication, and initialize responses.
+- A macOS permission reset helper for rebuilding and reinstalling the controller.
+
 ## v0.6.3
 
 ### Changed
