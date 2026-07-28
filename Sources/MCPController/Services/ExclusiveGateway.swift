@@ -232,8 +232,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
             sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID)
             return
         }
-        guard let authorization = request.headers["authorization"],
-              authorization.lowercased().hasPrefix("bearer ") else {
+        guard let authorization = request.headers["authorization"], authorization.lowercased().hasPrefix("bearer ") else {
             sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID)
             return
         }
@@ -268,6 +267,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         var upstream = URLRequest(url: url)
         upstream.httpMethod = request.method
         upstream.httpBody = request.body
+        upstream.timeoutInterval = 60
         for (name, value) in request.headers {
             guard !["authorization", "host", "connection", "content-length", "transfer-encoding", "origin"].contains(name) else { continue }
             upstream.setValue(value, forHTTPHeaderField: name)
@@ -277,12 +277,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let (body, response) = try await URLSession.shared.data(for: upstream)
+                let (bytes, response) = try await URLSession.shared.bytes(for: upstream)
                 guard let http = response as? HTTPURLResponse else {
                     self.sendError(connection, status: 502, message: "Upstream MCP returned an invalid response.", requestID: request.jsonRPCID)
                     return
                 }
-                self.sendProxyResponse(connection, response: http, body: body)
+                try await self.sendChunkedProxyResponse(connection, response: http, bytes: bytes)
                 if request.method == "DELETE", (200..<300).contains(http.statusCode) {
                     self.queue.async {
                         self.arbiter.release()
@@ -295,17 +295,51 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
     }
 
-    private func sendProxyResponse(_ connection: NWConnection, response: HTTPURLResponse, body: Data) {
+    private func sendChunkedProxyResponse(
+        _ connection: NWConnection,
+        response: HTTPURLResponse,
+        bytes: URLSession.AsyncBytes
+    ) async throws {
         var headers = "HTTP/1.1 \(response.statusCode) \(HTTPStatus.reason(response.statusCode))\r\n"
         for (key, value) in response.allHeaderFields {
             let name = String(describing: key)
             guard !["content-length", "transfer-encoding", "connection"].contains(name.lowercased()) else { continue }
             headers += "\(name): \(value)\r\n"
         }
-        headers += "Content-Length: \(body.count)\r\nConnection: close\r\n\r\n"
-        var responseData = Data(headers.utf8)
-        responseData.append(body)
-        send(connection, data: responseData)
+        headers += "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        try await sendAsync(connection, data: Data(headers.utf8))
+
+        var buffer = Data()
+        var iterator = bytes.makeAsyncIterator()
+        while let byte = try await iterator.next() {
+            buffer.append(byte)
+            if buffer.count >= 1024 {
+                try await sendChunk(connection, body: buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        if !buffer.isEmpty {
+            try await sendChunk(connection, body: buffer)
+        }
+        try await sendAsync(connection, data: Data("0\r\n\r\n".utf8))
+        connection.cancel()
+    }
+
+    private func sendChunk(_ connection: NWConnection, body: Data) async throws {
+        var chunk = Data(String(body.count, radix: 16).utf8)
+        chunk.append(Data("\r\n".utf8))
+        chunk.append(body)
+        chunk.append(Data("\r\n".utf8))
+        try await sendAsync(connection, data: chunk)
+    }
+
+    private func sendAsync(_ connection: NWConnection, data: Data) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            })
+        }
     }
 
     private func sendError(
@@ -347,8 +381,7 @@ private struct HTTPRequest {
 
     static func parse(_ data: Data) -> HTTPRequest? {
         let separator = Data("\r\n\r\n".utf8)
-        guard let headerRange = data.range(of: separator),
-              let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else { return nil }
+        guard let headerRange = data.range(of: separator), let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else { return nil }
         let lines = headerText.components(separatedBy: "\r\n")
         guard let first = lines.first else { return nil }
         let requestParts = first.split(separator: " ")
