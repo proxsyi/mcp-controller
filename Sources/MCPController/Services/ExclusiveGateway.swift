@@ -391,7 +391,8 @@ private final class ExclusiveGateway: @unchecked Sendable {
         var iterator = bytes.makeAsyncIterator()
         while let byte = try await iterator.next() {
             buffer.append(byte)
-            if buffer.count >= 1024 {
+            let shouldFlush = byte == 0x0A || buffer.count >= 256
+            if shouldFlush {
                 try await sendChunk(connection, body: buffer)
                 buffer.removeAll(keepingCapacity: true)
             }
