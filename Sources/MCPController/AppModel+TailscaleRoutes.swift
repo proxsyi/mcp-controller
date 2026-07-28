@@ -39,6 +39,7 @@ extension AppModel {
                 failures.append("\(profile.name): Tailscale CLI or route configuration is invalid")
                 continue
             }
+            _ = removeManagedRoutes(for: profile)
             do {
                 let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
                 if result.exitCode == 0 { started += 1 }
@@ -54,14 +55,8 @@ extension AppModel {
     func stopTailscaleFunnel() {
         var failures: [String] = []
         for profile in profiles where profile.tailscaleRouteEnabled {
-            guard let arguments = TailscaleCommandBuilder.removeArguments(for: profile) else { continue }
-            do {
-                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
-                let message = (result.error + result.output).lowercased()
-                if result.exitCode != 0 && !message.contains("handler does not exist") && !message.contains("failed to remove web serve") {
-                    failures.append("\(profile.name): \(result.error.isEmpty ? result.output : result.error)")
-                }
-            } catch { failures.append("\(profile.name): \(error.localizedDescription)") }
+            let errors = removeManagedRoutes(for: profile)
+            failures.append(contentsOf: errors.map { "\(profile.name): \($0)" })
         }
         tailscaleFunnelRunning = false
         UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
@@ -76,6 +71,7 @@ extension AppModel {
         }
         var configured = profile; configured.tailscaleRouteEnabled = true
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: configured) else { presentedError = "Choose Tailnet or Public Funnel before starting the route."; return false }
+        _ = removeManagedRoutes(for: configured)
         do {
             let result = try CommandRunner.run(executable: configured.tailscalePath, arguments: arguments)
             guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
@@ -87,15 +83,40 @@ extension AppModel {
 
     @discardableResult
     func stopTailscaleRoute(_ profile: ServerProfile) -> Bool {
-        guard let arguments = TailscaleCommandBuilder.removeArguments(for: profile) else { return true }
-        do {
-            let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
-            let message = (result.error + result.output).lowercased()
-            guard result.exitCode == 0 || message.contains("handler does not exist") || message.contains("failed to remove web serve") else {
-                throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error)
+        let errors = removeManagedRoutes(for: profile)
+        guard errors.isEmpty else {
+            presentedError = "Could not remove the Tailscale route for \(profile.name): \(errors.joined(separator: "; "))"
+            return false
+        }
+        var configured = profile; configured.tailscaleRouteEnabled = false; update(configured)
+        return true
+    }
+
+    private func removeManagedRoutes(for profile: ServerProfile) -> [String] {
+        guard profile.exposureMode != .disabled else { return [] }
+        let paths = managedRoutePaths(for: profile)
+        var failures: [String] = []
+        for path in paths {
+            let arguments = TailscaleCommandBuilder.removeArguments(for: profile, mountPath: path)
+            do {
+                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                let message = (result.error + result.output).lowercased()
+                if result.exitCode != 0 &&
+                    !message.contains("handler does not exist") &&
+                    !message.contains("failed to remove web serve") {
+                    failures.append(result.error.isEmpty ? result.output : result.error)
+                }
+            } catch {
+                failures.append(error.localizedDescription)
             }
-            var configured = profile; configured.tailscaleRouteEnabled = false; update(configured)
-            return true
-        } catch { presentedError = "Could not remove the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }
+        }
+        return failures
+    }
+
+    private func managedRoutePaths(for profile: ServerProfile) -> [String] {
+        let current = profile.normalizedMountPath
+        var paths = [current]
+        if !current.hasSuffix("/mcp") { paths.append(current == "/" ? "/mcp" : current + "/mcp") }
+        return Array(NSOrderedSet(array: paths)) as? [String] ?? paths
     }
 }
