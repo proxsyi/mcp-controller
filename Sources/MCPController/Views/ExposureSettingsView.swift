@@ -7,7 +7,10 @@ struct ExposureSettingsView: View {
     let phase: RuntimePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var advancedBehavior = false
+    @State private var showTailscaleCLI = false
     @State private var dnsName = ""
+
+    private var cliAvailable: Bool { TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath) }
 
     var body: some View {
         VStack(spacing: 18) {
@@ -27,34 +30,51 @@ struct ExposureSettingsView: View {
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
                         GridRow {
                             Text("MCP server port").foregroundStyle(.secondary)
-                            TextField("4101", text: integerBinding(\.localPort)).textFieldStyle(.roundedBorder).frame(width: 120).disabled(phase.isActive)
+                            TextField("4101", text: integerBinding(\.localPort))
+                                .textFieldStyle(.roundedBorder).frame(width: 120).disabled(phase.isActive)
                         }
                         if profile.exposureMode != .disabled {
                             GridRow {
                                 Text("Public HTTPS port").foregroundStyle(.secondary)
                                 Picker("Public HTTPS port", selection: $profile.publicPort) {
                                     ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
-                                }.labelsHidden().frame(width: 120).disabled(profile.tailscaleRouteEnabled)
+                                }
+                                .labelsHidden().frame(width: 120).disabled(profile.tailscaleRouteEnabled)
                             }
                             GridRow {
                                 Text("Address path").foregroundStyle(.secondary)
-                                TextField("/mcp/server", text: $profile.mountPath).textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
-                            }
-                            GridRow {
-                                Text("Tailscale CLI").foregroundStyle(.secondary)
-                                TextField("/usr/local/bin/tailscale", text: $profile.tailscalePath).textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
+                                TextField("/mcp/server", text: $profile.mountPath)
+                                    .textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
                             }
                         }
                     }
 
                     if phase.isActive {
-                        Label("Stop this server to change its MCP port.", systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                        Label("Stop this server to change its MCP port.", systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    if profile.exposureMode != .disabled {
+                        DisclosureGroup("Tailscale CLI", isExpanded: $showTailscaleCLI) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    TextField(TailscaleRouteService.defaultCLIPath, text: $profile.tailscalePath)
+                                        .textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
+                                    Button("Use Default") {
+                                        profile.tailscalePath = TailscaleRouteService.defaultCLIPath
+                                        refreshDNSName()
+                                    }
+                                    .disabled(profile.tailscaleRouteEnabled)
+                                }
+                                Label(cliAvailable ? "Tailscale CLI found" : "Tailscale CLI not found", systemImage: cliAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                    .font(.caption).foregroundStyle(cliAvailable ? .green : .orange)
+                            }.padding(.top, 10)
+                        }
                     }
                 }
             }
 
             if profile.exposureMode != .disabled { routeControl }
-
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
 
             ContentCard(title: "Behavior", symbol: "timer") {
@@ -71,7 +91,10 @@ struct ExposureSettingsView: View {
                 }
             }
         }
-        .onAppear { refreshDNSName() }
+        .onAppear {
+            if !cliAvailable { profile.tailscalePath = TailscaleRouteService.defaultCLIPath }
+            refreshDNSName()
+        }
         .onChange(of: profile.tailscalePath) { _, _ in refreshDNSName() }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.exposureMode)
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
@@ -83,46 +106,47 @@ struct ExposureSettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(profile.tailscaleRouteEnabled ? "Route is enabled" : "Route is off").fontWeight(.medium)
-                        Text(profile.tailscaleRouteEnabled ? "This MCP server is published at the address below." : "This MCP server is not currently routed through Tailscale.")
+                        Text(profile.tailscaleRouteEnabled ? "This server is published at the address below." : "Start the route when you are ready to publish this server.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button(profile.tailscaleRouteEnabled ? "Stop Route" : "Start Route", systemImage: profile.tailscaleRouteEnabled ? "stop.fill" : "play.fill") {
                         if profile.tailscaleRouteEnabled {
                             if model.stopTailscaleRoute(profile) { profile.tailscaleRouteEnabled = false }
-                        } else {
-                            if model.startTailscaleRoute(profile) { profile.tailscaleRouteEnabled = true; refreshDNSName() }
+                        } else if model.startTailscaleRoute(profile) {
+                            profile.tailscaleRouteEnabled = true; refreshDNSName()
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(profile.tailscaleRouteEnabled ? .red : .blue)
-                    .disabled(!phase.isActive)
+                    .disabled(!phase.isActive || !cliAvailable)
                 }
 
                 HStack(spacing: 8) {
-                    Image(systemName: "link")
+                    Image(systemName: dnsName.isEmpty ? "link.badge.plus" : "link")
                     Text(publicAddress).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)
                     Spacer()
+                    Button("Refresh address", systemImage: "arrow.clockwise") { refreshDNSName() }
+                        .labelStyle(.iconOnly).help("Refresh Tailscale address")
                     Button("Copy address", systemImage: "square.on.square") {
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(publicAddress, forType: .string)
-                    }.labelStyle(.iconOnly).help("Copy route address")
+                    }.labelStyle(.iconOnly).help("Copy route address").disabled(dnsName.isEmpty)
                 }
-                .padding(10)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
+                .padding(10).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
 
                 if !phase.isActive {
                     Label("Start the MCP server before starting its route.", systemImage: "info.circle").font(.caption).foregroundStyle(.orange)
+                } else if !cliAvailable {
+                    Label("Choose a valid Tailscale CLI before starting the route.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
             }
         }
     }
 
     private var publicAddress: String {
-        TailscaleRouteService.address(for: profile, dnsName: dnsName.isEmpty ? "your-device.ts.net" : dnsName)
+        dnsName.isEmpty ? "Tailscale address unavailable" : TailscaleRouteService.address(for: profile, dnsName: dnsName)
     }
-
     private func refreshDNSName() { dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? "" }
-
     private var exposureExplanation: String {
         switch profile.exposureMode {
         case .disabled: "Only apps on this Mac can reach the selected endpoint."
