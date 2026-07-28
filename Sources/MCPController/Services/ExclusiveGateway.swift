@@ -367,7 +367,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         headers += "User-Agent: MCP Controller\r\n"
         headers += "Content-Length: \(request.body.count)\r\n"
-        headers += "Connection: close\r\n\r\n"
+        headers += "Connection: keep-alive\r\n\r\n"
         var data = Data(headers.utf8)
         data.append(request.body)
         return data
