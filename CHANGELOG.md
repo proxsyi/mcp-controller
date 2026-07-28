@@ -4,6 +4,15 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.3
+
+### Changed
+- Tightened the Setup, Access, and Activity tabs so each one only contains settings that belong there.
+- Made Local behavior tiles directly editable and reduced oversized settings blocks.
+- Let Remote access directly control each server’s Tailscale route settings.
+- Folded gateway-specific advanced controls into Access control and simplified Activity to logs only.
+- Updated the top-right server actions to render as separate circular buttons.
+
 ## v0.6.2
 
 ### Fixed
