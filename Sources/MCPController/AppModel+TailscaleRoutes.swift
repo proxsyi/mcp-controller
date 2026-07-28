@@ -3,12 +3,12 @@ import Foundation
 extension AppModel {
     func nextAvailableLocalPort(startingAt start: Int = 4100) -> Int {
         let used = Set(profiles.map(\.localPort))
-        return (start...65535).first(where: { !used.contains($0) }) ?? start
+        return (max(1024, start)...65535).first(where: { !used.contains($0) }) ?? max(4100, start)
     }
 
     func nextAvailableGatewayPort(startingAt start: Int = 39000) -> Int {
         let used = Set(profiles.map(\.gatewayPort) + profiles.map(\.localPort))
-        return (start...65535).first(where: { !used.contains($0) }) ?? start
+        return (max(1024, start)...65535).first(where: { !used.contains($0) }) ?? max(39000, start)
     }
 
     func uniqueMountPath(for name: String) -> String {
@@ -24,7 +24,6 @@ extension AppModel {
 
     @discardableResult
     func startTailscaleRoute(_ profile: ServerProfile) -> Bool {
-        guard phase(for: profile.id) == .running else { presentedError = "Start \(profile.name) before enabling its Tailscale route."; return false }
         guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath) else { presentedError = "Tailscale CLI was not found at \(profile.tailscalePath)."; return false }
         if let conflict = profiles.first(where: { $0.id != profile.id && $0.tailscaleRouteEnabled && $0.publicPort == profile.publicPort && $0.normalizedMountPath == profile.normalizedMountPath }) {
             presentedError = "\(conflict.name) already uses HTTPS port \(profile.publicPort) at \(profile.normalizedMountPath)."
@@ -35,17 +34,24 @@ extension AppModel {
         do {
             let result = try CommandRunner.run(executable: configured.tailscalePath, arguments: arguments)
             guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
-            update(configured); return true
+            update(configured)
+            tailscaleFunnelRunning = true
+            UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+            return true
         } catch { presentedError = "Could not start the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }
     }
 
     @discardableResult
     func stopTailscaleRoute(_ profile: ServerProfile) -> Bool {
-        guard let arguments = TailscaleCommandBuilder.disableArguments(for: profile) else { return true }
+        guard let arguments = TailscaleCommandBuilder.removeArguments(for: profile) else { return true }
         do {
             let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
-            guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
-            var configured = profile; configured.tailscaleRouteEnabled = false; update(configured); return true
-        } catch { presentedError = "Could not stop the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }
+            let message = (result.error + result.output).lowercased()
+            guard result.exitCode == 0 || message.contains("handler does not exist") || message.contains("failed to remove web serve") else {
+                throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error)
+            }
+            var configured = profile; configured.tailscaleRouteEnabled = false; update(configured)
+            return true
+        } catch { presentedError = "Could not remove the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }
     }
 }

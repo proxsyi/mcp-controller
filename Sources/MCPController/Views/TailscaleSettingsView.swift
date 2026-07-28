@@ -1,0 +1,129 @@
+import SwiftUI
+import AppKit
+
+struct TailscaleSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dnsName = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                globalControl
+                ForEach($model.profiles) { $profile in routeRow(profile: $profile) }
+            }
+            .padding(22)
+        }
+        .onAppear { refreshDNS() }
+        .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.tailscaleFunnelRunning)
+    }
+
+    private var globalControl: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Tailscale Funnel", systemImage: "globe").font(.headline)
+                    Text(model.tailscaleFunnelRunning ? "Funnel routes are running independently of MCP server processes." : "Funnel is stopped. Configured server routes are preserved.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(model.tailscaleFunnelRunning ? "Stop Funnel" : "Start Funnel", systemImage: model.tailscaleFunnelRunning ? "stop.fill" : "play.fill") {
+                    if model.tailscaleFunnelRunning { model.stopTailscaleFunnel() } else { model.startTailscaleFunnel() }
+                    refreshDNS()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(model.tailscaleFunnelRunning ? .red : .blue)
+            }
+            HStack {
+                Label(dnsName.isEmpty ? "Tailscale device name unavailable" : dnsName, systemImage: dnsName.isEmpty ? "exclamationmark.triangle" : "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(dnsName.isEmpty ? .orange : .green)
+                Spacer()
+                Button("Use Default CLI for All") {
+                    for var profile in model.profiles {
+                        profile.tailscalePath = TailscaleRouteService.defaultCLIPath
+                        model.update(profile)
+                    }
+                    refreshDNS()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(16).background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func routeRow(profile: Binding<ServerProfile>) -> some View {
+        let value = profile.wrappedValue
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(value.name).fontWeight(.medium)
+                    Text(value.tailscaleRouteEnabled ? publicAddress(for: value) : "Not included in Tailscale")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Toggle("Include", isOn: Binding(
+                    get: { profile.wrappedValue.tailscaleRouteEnabled },
+                    set: { enabled in configure(profile: profile, enabled: enabled) }
+                )).toggleStyle(.switch).labelsHidden()
+            }
+
+            if profile.wrappedValue.tailscaleRouteEnabled {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                    GridRow {
+                        Text("Visibility").foregroundStyle(.secondary)
+                        Picker("Visibility", selection: profile.exposureMode) {
+                            Text("Tailnet").tag(ExposureMode.tailnet)
+                            Text("Public Funnel").tag(ExposureMode.funnel)
+                        }.labelsHidden().pickerStyle(.segmented)
+                    }
+                    GridRow {
+                        Text("HTTPS port").foregroundStyle(.secondary)
+                        Picker("HTTPS port", selection: profile.publicPort) {
+                            ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
+                        }.labelsHidden().frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Address path").foregroundStyle(.secondary)
+                        TextField("/mcp/server", text: profile.mountPath).textFieldStyle(.roundedBorder)
+                    }
+                }
+                .disabled(model.tailscaleFunnelRunning)
+
+                HStack {
+                    Text(publicAddress(for: profile.wrappedValue)).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)
+                    Spacer()
+                    Button("Copy", systemImage: "square.on.square") {
+                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(publicAddress(for: profile.wrappedValue), forType: .string)
+                    }.labelStyle(.iconOnly).disabled(dnsName.isEmpty)
+                }
+            }
+        }
+        .padding(14).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func configure(profile: Binding<ServerProfile>, enabled: Bool) {
+        var value = profile.wrappedValue
+        if enabled {
+            value.tailscaleRouteEnabled = true
+            if value.exposureMode == .disabled { value.exposureMode = .funnel }
+            if value.normalizedMountPath == "/" { value.mountPath = model.uniqueMountPath(for: value.name) }
+            value.tailscalePath = TailscaleRouteService.defaultCLIPath
+            model.update(value)
+            profile.wrappedValue = value
+            if model.tailscaleFunnelRunning { _ = model.startTailscaleRoute(value) }
+        } else {
+            if model.tailscaleFunnelRunning { _ = model.stopTailscaleRoute(value) }
+            value.tailscaleRouteEnabled = false
+            model.update(value)
+            profile.wrappedValue = value
+        }
+    }
+
+    private func publicAddress(for profile: ServerProfile) -> String {
+        dnsName.isEmpty ? "Address available when Tailscale is connected" : TailscaleRouteService.address(for: profile, dnsName: dnsName)
+    }
+    private func refreshDNS() {
+        let path = model.profiles.first?.tailscalePath ?? TailscaleRouteService.defaultCLIPath
+        dnsName = TailscaleRouteService.dnsName(cliPath: path) ?? ""
+    }
+}
