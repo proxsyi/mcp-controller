@@ -125,7 +125,7 @@ final class AppModel: ObservableObject {
         if !profile.workingDirectory.isEmpty {
             process.currentDirectoryURL = URL(fileURLWithPath: profile.workingDirectory, isDirectory: true)
         }
-        process.environment = ProcessInfo.processInfo.environment.merging(profile.environment) { _, configured in configured }
+        process.environment = launchEnvironment(for: profile)
 
         let output = Pipe()
         let error = Pipe()
@@ -210,6 +210,26 @@ final class AppModel: ObservableObject {
 
     func clearLog(for id: UUID) {
         logs[id] = ""
+    }
+
+    private func launchEnvironment(for profile: ServerProfile) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment.merging(profile.environment) { _, configured in configured }
+        let standardPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+        let existingPaths = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        var seen = Set<String>()
+        environment["PATH"] = (standardPaths + existingPaths)
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .joined(separator: ":")
+        return environment
     }
 
     private func enableExposure(_ profile: ServerProfile) throws {
