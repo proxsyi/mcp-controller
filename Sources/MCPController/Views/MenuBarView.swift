@@ -26,46 +26,50 @@ struct MenuBarView: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(model.profiles) { profile in
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(statusColor(model.phase(for: profile.id)))
-                                    .frame(width: 7, height: 7)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(profile.name)
-                                        .font(.callout.weight(.medium))
-                                        .lineLimit(1)
-                                    Text(subtitle(for: profile))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 6)
-                                Button {
-                                    model.phase(for: profile.id).isActive ? model.stop(profile) : model.start(profile)
-                                } label: {
-                                    Image(systemName: model.phase(for: profile.id).isActive ? "stop.fill" : "play.fill")
-                                        .frame(width: 18, height: 18)
-                                }
-                                .buttonStyle(.borderless)
-                                .help(model.phase(for: profile.id).isActive ? "Stop \(profile.name)" : "Start \(profile.name)")
-                            }
-                            .frame(height: 38)
+                            serverRow(profile)
                         }
                     }
                 }
-                .frame(maxHeight: 240)
+                .frame(height: min(CGFloat(model.profiles.count) * 44, 240))
 
-                Divider()
-
-                Button("Stop Everything", systemImage: "stop.fill", role: .destructive) {
-                    model.stopAll()
+                if model.runningCount > 0 {
+                    Divider()
+                    Button("Stop Everything", systemImage: "stop.fill", role: .destructive) {
+                        model.stopAll()
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
-                .disabled(model.runningCount == 0)
             }
         }
         .padding(10)
-        .frame(width: 300)
+        .frame(width: 320)
+    }
+
+    private func serverRow(_ profile: ServerProfile) -> some View {
+        let active = model.phase(for: profile.id).isActive
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor(model.phase(for: profile.id)))
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(profile.name)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(subtitle(for: profile))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(active ? "Stop" : "Start", systemImage: active ? "stop.fill" : "play.fill") {
+                active ? model.stop(profile) : model.start(profile)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(active ? .red : .accentColor)
+            .fixedSize()
+        }
+        .frame(height: 42)
     }
 
     private func subtitle(for profile: ServerProfile) -> String {
