@@ -367,8 +367,14 @@ private final class ExclusiveGateway: @unchecked Sendable {
         var headers = "\(request.method) \(target) HTTP/1.1\r\n"
         headers += "Host: 127.0.0.1:\(profile.localPort)\r\n"
         for (name, value) in request.headers.sorted(by: { $0.key < $1.key }) {
-            guard !["authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
+            guard !["accept", "authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
             headers += "\(name): \(value)\r\n"
+        }
+        if let accept = GatewayRequestHeaderAdapter.acceptValue(
+            original: request.headers["accept"],
+            compatibilityEnabled: profile.remoteClientCompatibilityEnabled
+        ) {
+            headers += "Accept: \(accept)\r\n"
         }
         headers += "User-Agent: MCP Controller\r\n"
         headers += "Content-Length: \(request.body.count)\r\n"

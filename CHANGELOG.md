@@ -4,6 +4,12 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.7
+
+### Fixed
+- Made compatibility mode normalize outbound MCP `Accept` headers to include both `application/json` and `text/event-stream`.
+- Adapted strict remote clients without changing upstream MCP servers or weakening strict mode when compatibility is off.
+
 ## v0.6.6
 
 ### Fixed
