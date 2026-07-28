@@ -2,7 +2,6 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var updates: UpdateManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingAddServer = false
     @State private var searchText = ""
@@ -46,12 +45,6 @@ struct RootView: View {
                     }
                 } else if filteredProfiles.isEmpty { ContentUnavailableView.search(text: searchText) }
             }
-            .toolbar {
-                ToolbarItem {
-                    Button("Add server", systemImage: "plus") { showingAddServer = true }.help("Add an MCP server")
-                }
-                ToolbarItem { updateMenu }
-            }
         } detail: {
             ZStack {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
@@ -63,30 +56,20 @@ struct RootView: View {
             }
             .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("Add server", systemImage: "plus") { showingAddServer = true }
+                    .help("Add an MCP server")
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .help("Settings (⌘,)")
+            }
+        }
         .sheet(isPresented: $showingAddServer) { AddServerView().environmentObject(model) }
         .alert("MCP Controller", isPresented: Binding(get: { model.presentedError != nil }, set: { if !$0 { model.presentedError = nil } })) {
             Button("OK") { model.presentedError = nil }
         } message: { Text(model.presentedError ?? "") }
-    }
-
-    private var updateMenu: some View {
-        Menu {
-            Button("Check for Updates", systemImage: "arrow.triangle.2.circlepath") { updates.checkForUpdates() }
-                .disabled(updates.isChecking || updates.isInstalling)
-            if updates.updateAvailable {
-                Button("Update to \(updates.availableVersion ?? "latest")", systemImage: "arrow.down.circle.fill") {
-                    updates.installAvailableUpdate()
-                }
-                .disabled(updates.isInstalling)
-            }
-            if !updates.statusMessage.isEmpty {
-                Divider()
-                Text(updates.statusMessage)
-            }
-        } label: {
-            Label("Updates", systemImage: updates.updateAvailable ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
-        }
-        .help(updates.updateAvailable ? "An update is available" : "Check for updates")
     }
 
     private var sidebarSummary: some View {
