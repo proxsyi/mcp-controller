@@ -5,6 +5,7 @@ struct MCPControllerApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var settings = AppSettings()
     @StateObject private var updates = UpdateManager()
+    @StateObject private var settingsWindow = SettingsWindowCoordinator()
 
     var body: some Scene {
         WindowGroup("MCP Controller") {
@@ -19,12 +20,14 @@ struct MCPControllerApp: App {
                 }
         }
         .defaultSize(width: 1180, height: 760)
+        .commands { SettingsToggleCommands(coordinator: settingsWindow) }
 
         Settings {
             SettingsView()
                 .environmentObject(model)
                 .environmentObject(settings)
                 .environmentObject(updates)
+                .background(SettingsWindowProbe { settingsWindow.register($0) })
         }
 
         MenuBarExtra("", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {

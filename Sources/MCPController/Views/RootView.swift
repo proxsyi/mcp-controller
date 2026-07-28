@@ -23,9 +23,7 @@ struct RootView: View {
             List(selection: $model.selectedID) {
                 Section {
                     ForEach(filteredProfiles) { profile in
-                        ServerRow(profile: profile)
-                            .tag(profile.id)
-                            .contextMenu { contextMenu(for: profile) }
+                        ServerRow(profile: profile).tag(profile.id).contextMenu { contextMenu(for: profile) }
                     }
                 } header: { sidebarSummary }
             }
@@ -50,12 +48,12 @@ struct RootView: View {
                 } else {
                     ContentUnavailableView("Select a server", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure or control it."))
                 }
-            }
-            .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
+            }.animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button("Add server", systemImage: "plus") { showingAddServer = true }.help("Add an MCP server")
+                TailscaleToolbarButton()
                 SettingsLink { Label("Settings", systemImage: "gearshape") }.help("Settings (⌘,)")
             }
         }
@@ -65,14 +63,10 @@ struct RootView: View {
         } message: { Text(model.presentedError ?? "") }
     }
 
-    @ViewBuilder
-    private func contextMenu(for profile: ServerProfile) -> some View {
+    @ViewBuilder private func contextMenu(for profile: ServerProfile) -> some View {
         let phase = model.phase(for: profile.id)
-        if phase.isActive {
-            Button("Stop", systemImage: "stop.fill") { model.stop(profile) }
-        } else {
-            Button("Start", systemImage: "play.fill") { model.start(profile) }
-        }
+        if phase.isActive { Button("Stop", systemImage: "stop.fill") { model.stop(profile) } }
+        else { Button("Start", systemImage: "play.fill") { model.start(profile) } }
         Button("Copy Logs", systemImage: "square.on.square") { copyLogs(for: profile, resetFailure: phase.isFailed) }
             .disabled(model.logs[profile.id, default: ""].isEmpty)
         Divider()
@@ -85,15 +79,12 @@ struct RootView: View {
             Text("\(model.profiles.count) configured")
             Spacer(minLength: 12)
             if model.failedCount > 0 {
-                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red).fixedSize()
+                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).fixedSize()
             }
             if model.runningCount > 0 {
-                Label("\(model.runningCount)", systemImage: "bolt.fill")
-                    .foregroundStyle(.green).contentTransition(.numericText()).fixedSize()
+                Label("\(model.runningCount)", systemImage: "bolt.fill").foregroundStyle(.green).contentTransition(.numericText()).fixedSize()
             }
-        }
-        .textCase(nil).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.vertical, 4).padding(.trailing, 12)
+        }.textCase(nil).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.vertical, 4).padding(.trailing, 12)
     }
 
     private func copyLogs(for profile: ServerProfile, resetFailure: Bool) {
@@ -107,7 +98,6 @@ private struct ServerRow: View {
     let profile: ServerProfile
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
-
     private var phase: RuntimePhase { model.phase(for: profile.id) }
 
     var body: some View {
@@ -124,8 +114,7 @@ private struct ServerRow: View {
                     if profile.tailscaleRouteEnabled { Image(systemName: "link").accessibilityLabel("Tailscale route enabled") }
                 }.font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 8)
-            actionControl
+            Spacer(minLength: 8); actionControl
         }
         .padding(.vertical, 5).contentShape(Rectangle()).scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
         .onHover { value in withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = value } }
@@ -138,8 +127,7 @@ private struct ServerRow: View {
         } else {
             Button(actionTitle, systemImage: actionSymbol) { performAction() }
                 .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(actionColor)
-                .frame(width: 24, height: 24).contentShape(Rectangle())
-                .help(actionHelp).accessibilityLabel(actionHelp)
+                .frame(width: 24, height: 24).contentShape(Rectangle()).help(actionHelp).accessibilityLabel(actionHelp)
         }
     }
 
@@ -153,7 +141,6 @@ private struct ServerRow: View {
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
         }
     }
-
     private var actionTitle: String { phase.isFailed ? "Copy logs" : phase.isActive ? "Stop" : "Start" }
     private var actionSymbol: String { phase.isFailed ? "square.on.square" : phase.isActive ? "stop.fill" : "play.fill" }
     private var actionHelp: String { phase.isFailed ? "Copy logs and reset \(profile.name)" : "\(actionTitle) \(profile.name)" }
