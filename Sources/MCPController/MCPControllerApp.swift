@@ -8,9 +8,9 @@ struct MCPControllerApp: App {
         WindowGroup("MCP Controller") {
             RootView()
                 .environmentObject(model)
-                .frame(minWidth: 900, minHeight: 580)
+                .frame(minWidth: 980, minHeight: 640)
         }
-        .defaultSize(width: 1040, height: 680)
+        .defaultSize(width: 1180, height: 760)
 
         MenuBarExtra("MCP Controller", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
             MenuBarView()
