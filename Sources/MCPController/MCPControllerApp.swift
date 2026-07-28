@@ -12,7 +12,7 @@ struct MCPControllerApp: App {
         }
         .defaultSize(width: 1180, height: 760)
 
-        MenuBarExtra("MCP Controller", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
+        MenuBarExtra("", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
             MenuBarView()
                 .environmentObject(model)
         }
