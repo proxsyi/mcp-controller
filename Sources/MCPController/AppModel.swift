@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     private let gatewayManager = ExclusiveGatewayManager()
     private var processes: [UUID: Process] = [:]
     private var outputPipes: [UUID: [Pipe]] = [:]
+    private var userStoppedProfiles: Set<UUID> = []
 
     var runningCount: Int {
         phases.values.filter(\.isActive).count
@@ -114,6 +115,7 @@ final class AppModel: ObservableObject {
             return
         }
 
+        userStoppedProfiles.remove(profile.id)
         phases[profile.id] = .starting
         appendLog(profile.id, "Starting \(profile.name)…\n")
 
@@ -137,10 +139,15 @@ final class AppModel: ObservableObject {
                 self.gatewayManager.stop(profileID: profile.id)
                 self.processes.removeValue(forKey: profile.id)
                 self.outputPipes.removeValue(forKey: profile.id)
-                if self.phase(for: profile.id) != .stopping {
+
+                let wasUserStop = self.userStoppedProfiles.remove(profile.id) != nil
+                if wasUserStop || self.phase(for: profile.id) == .stopping || self.phase(for: profile.id) == .stopped {
+                    self.phases[profile.id] = .stopped
+                    self.appendLog(profile.id, "Process stopped.\n")
+                } else {
                     self.phases[profile.id] = process.terminationStatus == 0 ? .stopped : .failed("Exited with code \(process.terminationStatus)")
+                    self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
                 }
-                self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
             }
         }
 
@@ -148,10 +155,10 @@ final class AppModel: ObservableObject {
             try process.run()
             processes[profile.id] = process
             outputPipes[profile.id] = [output, error]
-            Task { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 try? await Task.sleep(for: .seconds(profile.startupDelaySeconds))
-                await self.finishStart(profile)
+                self.finishStart(profile)
             }
         } catch {
             phases[profile.id] = .failed(error.localizedDescription)
@@ -184,6 +191,7 @@ final class AppModel: ObservableObject {
             return
         }
 
+        userStoppedProfiles.insert(profile.id)
         gatewayManager.stop(profileID: profile.id)
         if let process = processes[profile.id], process.isRunning {
             process.terminate()
@@ -222,19 +230,21 @@ final class AppModel: ObservableObject {
 
     private func exposureMessage(for profile: ServerProfile) -> String {
         let gate = profile.exclusiveGatewayEnabled ? " through its exclusive AI gateway" : ""
-        switch profile.exposureMode {
+        return switch profile.exposureMode {
         case .disabled: "Running locally\(gate) on port \(profile.exposedLocalPort).\n"
         case .tailnet: "Running\(gate) and exposed to the tailnet at \(profile.normalizedMountPath).\n"
         case .funnel: "Running\(gate) and publicly exposed through Funnel at \(profile.normalizedMountPath).\n"
         }
     }
 
-    private func logHandler(for id: UUID) -> (FileHandle) -> Void {
+    private func logHandler(for id: UUID) -> @Sendable (FileHandle) -> Void {
         { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.appendLog(id, text) }
+            Task { @MainActor [weak self] in
+                self?.appendLog(id, text)
+            }
         }
     }
 
