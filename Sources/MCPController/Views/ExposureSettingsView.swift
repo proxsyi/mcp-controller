@@ -26,8 +26,7 @@ struct ExposureSettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Remote route")
-                            .fontWeight(.medium)
+                        Text("Remote route").fontWeight(.medium)
                         Text(profile.tailscaleRouteEnabled
                              ? "These settings directly control this server’s remote route."
                              : "Turn this on to give the server a Tailscale route.")
@@ -35,8 +34,7 @@ struct ExposureSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Toggle("Remote access", isOn: remoteAccessBinding)
-                        .labelsHidden()
+                    Toggle("Remote access", isOn: remoteAccessBinding).labelsHidden()
                 }
 
                 if profile.tailscaleRouteEnabled {
@@ -49,6 +47,7 @@ struct ExposureSettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
+                            .disabled(model.tailscaleFunnelRunning)
                         }
                         GridRow {
                             Text("HTTPS port").foregroundStyle(.secondary)
@@ -57,12 +56,14 @@ struct ExposureSettingsView: View {
                             }
                             .labelsHidden()
                             .frame(width: 120)
+                            .disabled(model.tailscaleFunnelRunning)
                         }
                         GridRow {
                             Text("Route path").foregroundStyle(.secondary)
                             TextField("/mcp/server", text: $profile.mountPath)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
+                                .disabled(model.tailscaleFunnelRunning)
                         }
                         GridRow {
                             Text("Remote URL").foregroundStyle(.secondary)
@@ -83,7 +84,6 @@ struct ExposureSettingsView: View {
                             }
                         }
                     }
-                    .disabled(model.tailscaleFunnelRunning)
 
                     Text(model.tailscaleFunnelRunning
                          ? "Stop the shared Funnel in Settings before editing a live public route."
@@ -104,8 +104,7 @@ struct ExposureSettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Compatibility mode")
-                            .fontWeight(.medium)
+                        Text("Compatibility mode").fontWeight(.medium)
                         Text("Keeps remote access, route protection, and the default key aligned for this server.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -117,10 +116,7 @@ struct ExposureSettingsView: View {
                 }
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-                    GridRow {
-                        Text("Status").foregroundStyle(.secondary)
-                        statusLine
-                    }
+                    GridRow { Text("Status").foregroundStyle(.secondary); statusLine }
                     GridRow {
                         Text("Remote access").foregroundStyle(.secondary)
                         Text(profile.tailscaleRouteEnabled ? audienceLabel : "Off")
@@ -158,17 +154,13 @@ struct ExposureSettingsView: View {
     }
 
     private var defaultKeyLabel: String {
-        if let credential = profile.clientCredentials.first(where: { $0.name == "Primary AI" }) {
-            return credential.name
-        }
+        if let credential = profile.clientCredentials.first(where: { $0.name == "Primary AI" }) { return credential.name }
         return profile.clientCredentials.first?.name ?? "Will create Primary AI"
     }
 
     private var statusLine: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(compatibilityColor)
-                .frame(width: 8, height: 8)
+            Circle().fill(compatibilityColor).frame(width: 8, height: 8)
             Text(compatibilityTitle)
                 .foregroundStyle(compatibilityColor)
                 .fontWeight(.medium)
@@ -191,10 +183,7 @@ struct ExposureSettingsView: View {
     }
 
     private var remoteAccessBinding: Binding<Bool> {
-        Binding(
-            get: { profile.tailscaleRouteEnabled },
-            set: { enabled in applyRemoteAccess(enabled: enabled) }
-        )
+        Binding(get: { profile.tailscaleRouteEnabled }, set: { applyRemoteAccess(enabled: $0) })
     }
 
     private var compatibilityBinding: Binding<Bool> {
@@ -205,22 +194,14 @@ struct ExposureSettingsView: View {
                 updated.remoteClientCompatibilityEnabled = enabled
                 if enabled {
                     updated.exclusiveGatewayEnabled = true
-                    if updated.clientCredentials.isEmpty {
-                        updated.clientCredentials.append(.generate(name: "Primary AI"))
-                    }
+                    if updated.clientCredentials.isEmpty { updated.clientCredentials.append(.generate(name: "Primary AI")) }
                     if updated.gatewayPort == updated.localPort {
                         updated.gatewayPort = model.nextAvailableGatewayPort(startingAt: updated.gatewayPort + 1)
                     }
-                    if updated.exposureMode == .disabled {
-                        updated.exposureMode = .funnel
-                    }
-                    if updated.normalizedMountPath == "/" {
-                        updated.mountPath = model.uniqueMountPath(for: updated.name)
-                    }
+                    if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+                    if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
                     profile = updated
-                    if !updated.tailscaleRouteEnabled {
-                        applyRemoteAccess(enabled: true)
-                    }
+                    if !updated.tailscaleRouteEnabled { applyRemoteAccess(enabled: true) }
                 } else {
                     profile = updated
                 }
@@ -233,17 +214,11 @@ struct ExposureSettingsView: View {
         if enabled {
             var updated = profile
             updated.tailscaleRouteEnabled = true
-            if updated.exposureMode == .disabled {
-                updated.exposureMode = .funnel
-            }
-            if updated.normalizedMountPath == "/" {
-                updated.mountPath = model.uniqueMountPath(for: updated.name)
-            }
+            if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+            if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
             updated.tailscalePath = TailscaleRouteService.defaultCLIPath
             if model.tailscaleFunnelRunning {
-                if model.startTailscaleRoute(updated) {
-                    profile = updated
-                }
+                if model.startTailscaleRoute(updated) { profile = updated }
             } else {
                 model.update(updated)
                 profile = updated
@@ -253,9 +228,7 @@ struct ExposureSettingsView: View {
             var updated = profile
             updated.tailscaleRouteEnabled = false
             if model.tailscaleFunnelRunning {
-                if model.stopTailscaleRoute(current) {
-                    profile = updated
-                }
+                if model.stopTailscaleRoute(current) { profile = updated }
             } else {
                 model.update(updated)
                 profile = updated
