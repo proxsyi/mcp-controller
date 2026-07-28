@@ -26,4 +26,14 @@ final class GatewayRouteMapperTests: XCTestCase {
 
         XCTAssertEqual(GatewayRouteMapper.upstreamTarget(for: "/mcp", profile: profile), "/mcp")
     }
+
+    func testStreamableHTTPTransportDefaultsToMCPPath() {
+        var profile = ServerProfile()
+        profile.mountPath = "/mcp/macos"
+        profile.arguments = ["serve", "--transport", "streamable-http"]
+
+        XCTAssertEqual(profile.streamableHTTPPath, "/mcp")
+        XCTAssertEqual(GatewayRouteMapper.upstreamTarget(for: "/", profile: profile), "/mcp")
+        XCTAssertEqual(GatewayRouteMapper.upstreamTarget(for: "/mcp/macos", profile: profile), "/mcp")
+    }
 }

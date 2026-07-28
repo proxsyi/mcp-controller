@@ -38,6 +38,18 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         if let argument = arguments.first(where: { $0.hasPrefix("--streamableHttpPath=") }) {
             return Self.normalizedEndpointPath(String(argument.dropFirst("--streamableHttpPath=".count)))
         }
+        if let index = arguments.firstIndex(of: "--transport"), arguments.indices.contains(index + 1) {
+            let transport = arguments[index + 1].lowercased()
+            if transport == "streamable-http" || transport == "streamablehttp" {
+                return "/mcp"
+            }
+        }
+        if arguments.contains(where: {
+            let value = $0.lowercased()
+            return value == "--transport=streamable-http" || value == "--transport=streamablehttp"
+        }) {
+            return "/mcp"
+        }
         return nil
     }
 

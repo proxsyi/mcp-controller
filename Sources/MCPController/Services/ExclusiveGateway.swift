@@ -471,9 +471,13 @@ private struct HTTPRequest {
             let value = line[line.index(after: split)...].trimmingCharacters(in: .whitespaces)
             headers[name] = value
         }
-        if headers["transfer-encoding"]?.lowercased().contains("chunked") == true { return nil }
-        let length = Int(headers["content-length"] ?? "0") ?? 0
         let bodyStart = headerRange.upperBound
+        if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
+            let encodedBody = data.subdata(in: bodyStart..<data.endIndex)
+            guard let body = HTTPChunkedBodyDecoder.decode(encodedBody) else { return nil }
+            return HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
+        }
+        let length = Int(headers["content-length"] ?? "0") ?? 0
         guard data.count >= bodyStart + length else { return nil }
         let body = data.subdata(in: bodyStart..<(bodyStart + length))
         return HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
