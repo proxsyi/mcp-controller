@@ -7,42 +7,62 @@ struct GatewayAccessView: View {
     let isRunning: Bool
     @State private var originText = ""
     @State private var showKeys = false
-    @State private var showAdvanced = false
 
     var body: some View {
         ContentCard(title: "Access control", symbol: "lock.shield") {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("One AI at a time").fontWeight(.medium)
-                        Text(profile.exclusiveGatewayEnabled ? "Protect this route with access keys and an exclusive lease." : "Allow direct remote access without a controller-issued key.")
+                        Text("Protect this route")
+                            .fontWeight(.medium)
+                        Text(profile.exclusiveGatewayEnabled
+                             ? "Remote clients need a controller-issued access key."
+                             : "Remote clients connect directly without a controller key.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Toggle("One AI at a time", isOn: $profile.exclusiveGatewayEnabled)
+                    Toggle("Access control", isOn: $profile.exclusiveGatewayEnabled)
                         .labelsHidden()
                         .disabled(isRunning)
                 }
 
                 if profile.exclusiveGatewayEnabled {
-                    compactLeaseStatus
+                    leaseSummary
+
+                    if !model.waiting(for: profile.id).isEmpty {
+                        waitingRequests
+                    }
 
                     DisclosureGroup("Access keys (\(profile.clientCredentials.count))", isExpanded: $showKeys) {
-                        credentials.padding(.top, 10)
+                        credentials
+                            .padding(.top, 8)
                     }
 
-                    DisclosureGroup("Advanced gateway settings", isExpanded: $showAdvanced) {
-                        advancedSettings.padding(.top, 10)
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                        GridRow {
+                            Text("Gateway port").foregroundStyle(.secondary)
+                            TextField("39000", text: gatewayPortBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .disabled(isRunning)
+                        }
+                        GridRow {
+                            Text("Lease timeout").foregroundStyle(.secondary)
+                            Stepper("\(profile.leaseTimeoutSeconds / 60) min", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
+                                .disabled(isRunning)
+                        }
+                        GridRow {
+                            Text("Allowed origins").foregroundStyle(.secondary)
+                            TextField("Optional, comma separated", text: $originText)
+                                .textFieldStyle(.roundedBorder)
+                                .disabled(isRunning)
+                        }
                     }
-                } else {
-                    Label("Remote clients connect directly to this server when exposure is enabled.", systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 if isRunning {
-                    Text("Stop the server to change gateway configuration. Access keys can still be copied.")
+                    Text("Stop the server before changing gateway settings. Access keys can still be copied while it is running.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -54,43 +74,45 @@ struct GatewayAccessView: View {
         }
     }
 
-    private var compactLeaseStatus: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let lease = model.lease(for: profile.id) {
-                HStack {
-                    Label("\(lease.clientName) is connected", systemImage: "checkmark.shield.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.green)
-                    Spacer()
-                    Button("Release") { model.releaseLease(profileID: profile.id) }
-                        .controlSize(.small)
-                }
-            } else {
-                Label(profile.remoteClientCompatibilityEnabled ? "Ready for remote clients" : "Ready for a client connection", systemImage: "shield.checkered")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            let waiting = model.waiting(for: profile.id)
-            ForEach(waiting) { request in
-                HStack {
-                    Label("\(request.clientName) is waiting", systemImage: "person.crop.circle.badge.questionmark")
-                    Spacer()
-                    Button("Deny", role: .destructive) { model.deny(profileID: profile.id, clientID: request.clientID) }
-                    Button("Approve") { model.approve(profileID: profile.id, clientID: request.clientID) }
-                        .buttonStyle(.borderedProminent)
-                }
-                .controlSize(.small)
+    private var leaseSummary: some View {
+        HStack(spacing: 12) {
+            Label(leaseTitle, systemImage: leaseSymbol)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(leaseColor)
+            Spacer()
+            if model.lease(for: profile.id) != nil {
+                Button("Release") { model.releaseLease(profileID: profile.id) }
+                    .controlSize(.small)
             }
         }
-        .padding(.top, 2)
+    }
+
+    private var waitingRequests: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(model.waiting(for: profile.id)) { request in
+                HStack(spacing: 10) {
+                    Label(request.clientName, systemImage: "person.crop.circle.badge.questionmark")
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Deny", role: .destructive) {
+                        model.deny(profileID: profile.id, clientID: request.clientID)
+                    }
+                    .controlSize(.small)
+                    Button("Approve") {
+                        model.approve(profileID: profile.id, clientID: request.clientID)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+        }
     }
 
     private var credentials: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach($profile.clientCredentials) { $credential in
                 HStack(spacing: 10) {
-                    TextField("AI name", text: $credential.name)
+                    TextField("Key name", text: $credential.name)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 160)
                         .disabled(isRunning)
@@ -98,61 +120,49 @@ struct GatewayAccessView: View {
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Copy key", systemImage: "square.on.square") {
+                    Button("Copy", systemImage: "square.on.square") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(credential.token, forType: .string)
                     }
-                    .labelStyle(.iconOnly)
-                    .help("Copy access key")
+                    .controlSize(.small)
                     Button("Remove", systemImage: "trash", role: .destructive) {
                         profile.clientCredentials.removeAll { $0.id == credential.id }
                     }
-                    .labelStyle(.iconOnly)
+                    .controlSize(.small)
                     .disabled(isRunning)
                 }
             }
 
-            Button("Add access key", systemImage: "plus") {
-                let number = profile.clientCredentials.count + 1
-                profile.clientCredentials.append(.generate(name: "AI \(number)"))
-            }
-            .disabled(isRunning)
+            HStack {
+                Button("Add key", systemImage: "plus") {
+                    let number = profile.clientCredentials.count + 1
+                    profile.clientCredentials.append(.generate(name: "AI \(number)"))
+                }
+                .controlSize(.small)
+                .disabled(isRunning)
 
-            if profile.clientCredentials.isEmpty {
-                Label("Add an access key before starting a protected route.", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                if profile.clientCredentials.isEmpty {
+                    Text("Add at least one key before starting a protected route.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
 
-    private var advancedSettings: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Only change these values if you need a non-default gateway setup.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                GridRow {
-                    Text("Gateway port").foregroundStyle(.secondary)
-                    TextField("39000", text: gatewayPortBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                        .disabled(isRunning)
-                }
-                GridRow {
-                    Text("Lease timeout").foregroundStyle(.secondary)
-                    Stepper("\(profile.leaseTimeoutSeconds / 60) minutes", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
-                        .disabled(isRunning)
-                }
-                GridRow {
-                    Text("Allowed origins").foregroundStyle(.secondary)
-                    TextField("Optional, comma separated", text: $originText)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(isRunning)
-                }
-            }
+    private var leaseTitle: String {
+        if let lease = model.lease(for: profile.id) {
+            return "\(lease.clientName) is connected"
         }
+        return profile.remoteClientCompatibilityEnabled ? "Ready for remote clients" : "Ready for client access"
+    }
+
+    private var leaseSymbol: String {
+        model.lease(for: profile.id) != nil ? "checkmark.shield.fill" : "shield.checkered"
+    }
+
+    private var leaseColor: Color {
+        model.lease(for: profile.id) != nil ? .green : .secondary
     }
 
     private var gatewayPortBinding: Binding<String> {
@@ -160,7 +170,9 @@ struct GatewayAccessView: View {
             get: { String(profile.gatewayPort) },
             set: { text in
                 let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) { profile.gatewayPort = value }
+                if let value = Int(digits), (1...65535).contains(value) {
+                    profile.gatewayPort = value
+                }
             }
         )
     }

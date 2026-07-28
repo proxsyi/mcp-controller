@@ -22,8 +22,8 @@ struct TailscaleSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Label("Tailscale Funnel", systemImage: "globe").font(.headline)
-                    Text(model.tailscaleFunnelRunning ? "Funnel routes are running independently of MCP server processes." : "Funnel is stopped. Configured server routes are preserved.")
+                    Label("Shared Funnel", systemImage: "globe").font(.headline)
+                    Text(model.tailscaleFunnelRunning ? "Public routes are currently available." : "Public routes stay configured, but the shared Funnel is stopped.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -57,22 +57,22 @@ struct TailscaleSettingsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(value.name).fontWeight(.medium)
-                    Text(value.tailscaleRouteEnabled ? publicAddress(for: value) : "Not included in Tailscale")
+                    Text(value.tailscaleRouteEnabled ? publicAddress(for: value) : "Remote access off")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                Toggle("Include", isOn: Binding(
+                Toggle("Remote access", isOn: Binding(
                     get: { profile.wrappedValue.tailscaleRouteEnabled },
                     set: { enabled in configure(profile: profile, enabled: enabled) }
-                )).toggleStyle(.switch).labelsHidden()
+                )).toggleStyle(.switch)
             }
 
             if profile.wrappedValue.tailscaleRouteEnabled {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                     GridRow {
-                        Text("Visibility").foregroundStyle(.secondary)
-                        Picker("Visibility", selection: profile.exposureMode) {
-                            Text("Tailnet").tag(ExposureMode.tailnet)
+                        Text("Audience").foregroundStyle(.secondary)
+                        Picker("Audience", selection: profile.exposureMode) {
+                            Text("Tailnet only").tag(ExposureMode.tailnet)
                             Text("Public Funnel").tag(ExposureMode.funnel)
                         }.labelsHidden().pickerStyle(.segmented)
                     }
@@ -83,7 +83,7 @@ struct TailscaleSettingsView: View {
                         }.labelsHidden().frame(width: 120)
                     }
                     GridRow {
-                        Text("Address path").foregroundStyle(.secondary)
+                        Text("Route path").foregroundStyle(.secondary)
                         TextField("/mcp/server", text: profile.mountPath).textFieldStyle(.roundedBorder)
                     }
                 }

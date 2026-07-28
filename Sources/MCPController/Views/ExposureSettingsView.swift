@@ -6,72 +6,94 @@ struct ExposureSettingsView: View {
     @Binding var profile: ServerProfile
     let phase: RuntimePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showLocalEndpoint = false
-    @State private var showStartupBehavior = false
     @State private var dnsName = ""
 
-    private let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             remoteAccessCard
             remoteCompatibilityCard
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
-            advancedCard
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
         .onAppear { refreshDNS() }
         .onChange(of: profile.tailscalePath) { _, _ in refreshDNS() }
         .onChange(of: profile.tailscaleRouteEnabled) { _, _ in refreshDNS() }
+        .onChange(of: profile.exposureMode) { _, _ in refreshDNS() }
     }
 
     private var remoteAccessCard: some View {
         ContentCard(title: "Remote access", symbol: "globe") {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(profile.tailscaleRouteEnabled ? "Exposed through Tailscale" : "Not exposed yet")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Remote route")
                             .fontWeight(.medium)
                         Text(profile.tailscaleRouteEnabled
-                             ? "Use Settings to manage its route, visibility, and Funnel lifecycle."
-                             : "Turn on Tailscale in Settings to give this server a remote address.")
+                             ? "These settings directly control this server’s remote route."
+                             : "Turn this on to give the server a Tailscale route.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    SettingsLink { Label("Manage", systemImage: "gearshape") }
+                    Toggle("Remote access", isOn: remoteAccessBinding)
+                        .labelsHidden()
                 }
 
-                LazyVGrid(columns: tileColumns, alignment: .leading, spacing: 12) {
-                    infoTile(
-                        "Visibility",
-                        profile.tailscaleRouteEnabled ? profile.exposureMode.title : "Off",
-                        profile.tailscaleRouteEnabled ? "HTTPS \(profile.publicPort)" : "Local only",
-                        profile.tailscaleRouteEnabled ? .blue : .secondary,
-                        profile.tailscaleRouteEnabled ? "globe" : "network.slash"
-                    )
-                    infoTile(
-                        "Public route",
-                        profile.tailscaleRouteEnabled ? profile.normalizedMountPath : "Not configured",
-                        profile.tailscaleRouteEnabled ? "Tailscale path" : "Created when remote access is enabled",
-                        .secondary,
-                        "point.3.connected.trianglepath.dotted"
-                    )
-                    infoTile(
-                        "Public URL",
-                        publicAddress ?? "Address unavailable",
-                        publicAddress == nil ? "Connect Tailscale to reveal the remote URL" : "Copy and paste into your MCP client",
-                        publicAddress == nil ? .secondary : .primary,
-                        publicAddress == nil ? "link.badge.plus" : "link",
-                        monospaced: true
-                    )
-                    infoTile(
-                        "Authentication",
-                        profile.exclusiveGatewayEnabled ? "Bearer access key" : "Direct server access",
-                        profile.exclusiveGatewayEnabled ? "Controller-issued key required" : "No controller-issued key",
-                        profile.exclusiveGatewayEnabled ? .green : .secondary,
-                        profile.exclusiveGatewayEnabled ? "lock.fill" : "lock.open"
-                    )
+                if profile.tailscaleRouteEnabled {
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                        GridRow {
+                            Text("Audience").foregroundStyle(.secondary)
+                            Picker("Audience", selection: $profile.exposureMode) {
+                                Text("Tailnet only").tag(ExposureMode.tailnet)
+                                Text("Public Funnel").tag(ExposureMode.funnel)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                        }
+                        GridRow {
+                            Text("HTTPS port").foregroundStyle(.secondary)
+                            Picker("HTTPS port", selection: $profile.publicPort) {
+                                ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
+                            }
+                            .labelsHidden()
+                            .frame(width: 120)
+                        }
+                        GridRow {
+                            Text("Route path").foregroundStyle(.secondary)
+                            TextField("/mcp/server", text: $profile.mountPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.subheadline, design: .monospaced))
+                        }
+                        GridRow {
+                            Text("Remote URL").foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Text(publicAddress ?? "Address available when Tailscale is connected")
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .foregroundStyle(publicAddress == nil ? .secondary : .primary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Button("Copy", systemImage: "square.on.square") {
+                                    guard let publicAddress else { return }
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(publicAddress, forType: .string)
+                                }
+                                .controlSize(.small)
+                                .disabled(publicAddress == nil)
+                            }
+                        }
+                    }
+                    .disabled(model.tailscaleFunnelRunning)
+
+                    Text(model.tailscaleFunnelRunning
+                         ? "Stop the shared Funnel in Settings before editing a live public route."
+                         : "These route settings will be used the next time the shared Funnel starts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("This server is currently local only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -79,12 +101,12 @@ struct ExposureSettingsView: View {
 
     private var remoteCompatibilityCard: some View {
         ContentCard(title: "Remote client compatibility", symbol: "bolt.horizontal.circle") {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Compatibility-first remote setup")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Compatibility mode")
                             .fontWeight(.medium)
-                        Text("Keeps this server in a remote-friendly configuration for clients like Notion.")
+                        Text("Keeps remote access, route protection, and the default key aligned for this server.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -94,119 +116,29 @@ struct ExposureSettingsView: View {
                         .disabled(phase.isActive)
                 }
 
-                statusPill(compatibilityStatus.title, color: compatibilityStatus.color, systemImage: compatibilityStatus.symbol)
-                Text(compatibilityStatus.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: tileColumns, alignment: .leading, spacing: 12) {
-                    infoTile(
-                        "State",
-                        compatibilityStatus.title,
-                        profile.remoteClientCompatibilityEnabled ? "Per-server compatibility mode" : "Disabled for this server",
-                        compatibilityStatus.color,
-                        compatibilityStatus.symbol
-                    )
-                    infoTile(
-                        "Remote route",
-                        profile.remoteClientCompatibilityEnabled
-                            ? (profile.tailscaleRouteEnabled ? profile.exposureMode.title : "Needs Tailscale exposure")
-                            : "Not configured",
-                        profile.remoteClientCompatibilityEnabled
-                            ? "A unique route is kept for remote clients"
-                            : "Enabled automatically when this mode turns on",
-                        profile.remoteClientCompatibilityEnabled && profile.tailscaleRouteEnabled ? .blue : .secondary,
-                        "point.3.filled.connected.trianglepath.dotted"
-                    )
-                    infoTile(
-                        "Session handling",
-                        profile.exclusiveGatewayEnabled ? "Controller-managed access keys" : "Direct server transport",
-                        profile.remoteClientCompatibilityEnabled ? "Primary AI key is created automatically when needed" : "No compatibility-specific session behavior",
-                        profile.exclusiveGatewayEnabled ? .green : .secondary,
-                        profile.exclusiveGatewayEnabled ? "person.badge.key.fill" : "bolt.horizontal"
-                    )
-                    infoTile(
-                        "Suggested URL",
-                        profile.remoteClientCompatibilityEnabled ? (publicAddress ?? "Available when Tailscale is connected") : "Turn on compatibility mode",
-                        profile.remoteClientCompatibilityEnabled ? "Use this for remote MCP clients" : "A public URL appears after setup",
-                        profile.remoteClientCompatibilityEnabled && publicAddress != nil ? .primary : .secondary,
-                        "rectangle.and_arrow_up_right_and_arrow_down_left",
-                        monospaced: true
-                    )
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                    GridRow {
+                        Text("Status").foregroundStyle(.secondary)
+                        statusLine
+                    }
+                    GridRow {
+                        Text("Remote access").foregroundStyle(.secondary)
+                        Text(profile.tailscaleRouteEnabled ? audienceLabel : "Off")
+                    }
+                    GridRow {
+                        Text("Route protection").foregroundStyle(.secondary)
+                        Text(profile.exclusiveGatewayEnabled ? "Access key required" : "Direct")
+                    }
+                    GridRow {
+                        Text("Default key").foregroundStyle(.secondary)
+                        Text(defaultKeyLabel)
+                    }
                 }
 
                 if phase.isActive {
-                    Text("Stop the server to change compatibility configuration.")
+                    Text("Stop the server before changing compatibility mode.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var advancedCard: some View {
-        ContentCard(title: "Advanced", symbol: "slider.horizontal.3") {
-            VStack(alignment: .leading, spacing: 14) {
-                DisclosureGroup("Local endpoint", isExpanded: $showLocalEndpoint) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        infoTile(
-                            "MCP server port",
-                            String(profile.localPort),
-                            phase.isActive ? "Stop this server to change its local endpoint." : "Unprivileged local port used by the MCP process.",
-                            profile.localPort < 1024 ? .red : .secondary,
-                            profile.localPort < 1024 ? "exclamationmark.triangle.fill" : "network",
-                            monospaced: true
-                        )
-
-                        if !phase.isActive {
-                            LabeledContent("Edit port") {
-                                TextField("4101", text: integerBinding(\.localPort))
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 120)
-                            }
-                        }
-
-                        if profile.localPort < 1024 {
-                            Label("Use port 1024 or higher. For macOS-MCP, restore this to 4101.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .padding(.top, 12)
-                }
-
-                DisclosureGroup("Startup behavior", isExpanded: $showStartupBehavior) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        LazyVGrid(columns: tileColumns, alignment: .leading, spacing: 12) {
-                            infoTile(
-                                "Readiness timeout",
-                                "\(max(15, Int(profile.startupDelaySeconds)))s",
-                                "How long MCP Controller waits for this server to open its port.",
-                                .secondary,
-                                "timer",
-                                monospaced: true
-                            )
-                            infoTile(
-                                "Launch at startup",
-                                profile.autoStart ? "Enabled" : "Disabled",
-                                profile.autoStart ? "This server starts when MCP Controller opens." : "This server stays stopped until you start it.",
-                                profile.autoStart ? .green : .secondary,
-                                profile.autoStart ? "play.circle.fill" : "pause.circle"
-                            )
-                        }
-
-                        LabeledContent("Readiness timeout") {
-                            HStack {
-                                Slider(value: $profile.startupDelaySeconds, in: 0...30, step: 0.5)
-                                    .frame(width: 220)
-                                Text("\(max(15, Int(profile.startupDelaySeconds)))s")
-                                    .monospacedDigit()
-                                    .frame(width: 42, alignment: .trailing)
-                            }
-                        }
-                        Toggle("Start when MCP Controller opens", isOn: $profile.autoStart)
-                    }
-                    .padding(.top, 12)
                 }
             }
         }
@@ -217,97 +149,122 @@ struct ExposureSettingsView: View {
         return TailscaleRouteService.address(for: profile, dnsName: dnsName)
     }
 
-    private var compatibilityStatus: (title: String, detail: String, color: Color, symbol: String) {
-        if !profile.remoteClientCompatibilityEnabled {
-            return ("Off", "Turn this on to keep the server in a compatibility-first remote configuration.", .secondary, "power")
+    private var audienceLabel: String {
+        switch profile.exposureMode {
+        case .disabled: return "Off"
+        case .tailnet: return "Tailnet only"
+        case .funnel: return "Public Funnel"
         }
-        if !profile.tailscaleRouteEnabled || profile.exposureMode == .disabled {
-            return ("Needs Tailscale", "Enable Tailscale exposure to make this server reachable by remote clients.", .orange, "exclamationmark.triangle.fill")
+    }
+
+    private var defaultKeyLabel: String {
+        if let credential = profile.clientCredentials.first(where: { $0.name == "Primary AI" }) {
+            return credential.name
         }
-        if phase.isFailed {
-            return ("Needs attention", "Resolve the server startup failure before connecting a remote client.", .red, "xmark.octagon.fill")
+        return profile.clientCredentials.first?.name ?? "Will create Primary AI"
+    }
+
+    private var statusLine: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(compatibilityColor)
+                .frame(width: 8, height: 8)
+            Text(compatibilityTitle)
+                .foregroundStyle(compatibilityColor)
+                .fontWeight(.medium)
         }
-        if dnsName.isEmpty {
-            return ("Waiting for Tailscale", "Connect Tailscale on this Mac to reveal the public URL and remote route.", .orange, "globe.badge.chevron.backward")
-        }
-        if phase.isActive {
-            return ("Configured", "Remote exposure, a unique route, and controller access keys are configured for this server.", .green, "checkmark.shield.fill")
-        }
-        return ("Ready when running", "Start the server to expose its compatibility-focused remote route.", .secondary, "pause.circle")
+    }
+
+    private var compatibilityTitle: String {
+        if !profile.remoteClientCompatibilityEnabled { return "Off" }
+        if !profile.tailscaleRouteEnabled || profile.exposureMode == .disabled { return "Needs remote access" }
+        if phase.isFailed { return "Needs attention" }
+        if dnsName.isEmpty { return "Waiting for Tailscale" }
+        return phase.isActive ? "Configured" : "Ready when running"
+    }
+
+    private var compatibilityColor: Color {
+        if !profile.remoteClientCompatibilityEnabled { return .secondary }
+        if phase.isFailed { return .red }
+        if !profile.tailscaleRouteEnabled || profile.exposureMode == .disabled || dnsName.isEmpty { return .orange }
+        return phase.isActive ? .green : .secondary
+    }
+
+    private var remoteAccessBinding: Binding<Bool> {
+        Binding(
+            get: { profile.tailscaleRouteEnabled },
+            set: { enabled in applyRemoteAccess(enabled: enabled) }
+        )
     }
 
     private var compatibilityBinding: Binding<Bool> {
         Binding(
             get: { profile.remoteClientCompatibilityEnabled },
             set: { enabled in
-                profile.remoteClientCompatibilityEnabled = enabled
-                guard enabled else {
-                    refreshDNS()
-                    return
-                }
-                profile.exclusiveGatewayEnabled = true
-                if profile.clientCredentials.isEmpty {
-                    profile.clientCredentials.append(.generate(name: "Primary AI"))
-                }
-                profile.tailscaleRouteEnabled = true
-                if profile.exposureMode == .disabled {
-                    profile.exposureMode = .funnel
-                }
-                if profile.normalizedMountPath == "/" {
-                    profile.mountPath = model.uniqueMountPath(for: profile.name)
-                }
-                if profile.gatewayPort == profile.localPort {
-                    profile.gatewayPort = model.nextAvailableGatewayPort(startingAt: profile.gatewayPort + 1)
+                var updated = profile
+                updated.remoteClientCompatibilityEnabled = enabled
+                if enabled {
+                    updated.exclusiveGatewayEnabled = true
+                    if updated.clientCredentials.isEmpty {
+                        updated.clientCredentials.append(.generate(name: "Primary AI"))
+                    }
+                    if updated.gatewayPort == updated.localPort {
+                        updated.gatewayPort = model.nextAvailableGatewayPort(startingAt: updated.gatewayPort + 1)
+                    }
+                    if updated.exposureMode == .disabled {
+                        updated.exposureMode = .funnel
+                    }
+                    if updated.normalizedMountPath == "/" {
+                        updated.mountPath = model.uniqueMountPath(for: updated.name)
+                    }
+                    profile = updated
+                    if !updated.tailscaleRouteEnabled {
+                        applyRemoteAccess(enabled: true)
+                    }
+                } else {
+                    profile = updated
                 }
                 refreshDNS()
             }
         )
     }
 
-    private func infoTile(
-        _ title: String,
-        _ value: String,
-        _ detail: String,
-        _ color: Color,
-        _ symbol: String,
-        monospaced: Bool = false
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: symbol)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(monospaced ? .system(.headline, design: .monospaced).weight(.semibold) : .headline.weight(.semibold))
-                .foregroundStyle(color)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
+    private func applyRemoteAccess(enabled: Bool) {
+        if enabled {
+            var updated = profile
+            updated.tailscaleRouteEnabled = true
+            if updated.exposureMode == .disabled {
+                updated.exposureMode = .funnel
+            }
+            if updated.normalizedMountPath == "/" {
+                updated.mountPath = model.uniqueMountPath(for: updated.name)
+            }
+            updated.tailscalePath = TailscaleRouteService.defaultCLIPath
+            if model.tailscaleFunnelRunning {
+                if model.startTailscaleRoute(updated) {
+                    profile = updated
+                }
+            } else {
+                model.update(updated)
+                profile = updated
+            }
+        } else {
+            let current = profile
+            var updated = profile
+            updated.tailscaleRouteEnabled = false
+            if model.tailscaleFunnelRunning {
+                if model.stopTailscaleRoute(current) {
+                    profile = updated
+                }
+            } else {
+                model.update(updated)
+                profile = updated
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 102, alignment: .topLeading)
-        .padding(14)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func statusPill(_ title: String, color: Color, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.14), in: Capsule())
-            .foregroundStyle(color)
+        refreshDNS()
     }
 
     private func refreshDNS() {
         dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? ""
-    }
-
-    private func integerBinding(_ keyPath: WritableKeyPath<ServerProfile, Int>) -> Binding<String> {
-        Binding(get: { String(profile[keyPath: keyPath]) }, set: { text in
-            let digits = text.filter(\.isNumber)
-            if let value = Int(digits), (1...65535).contains(value) { profile[keyPath: keyPath] = value }
-        })
     }
 }
