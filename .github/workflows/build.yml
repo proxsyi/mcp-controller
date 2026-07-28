@@ -1,0 +1,24 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+      - name: Test
+        run: swift test
+      - name: Build app bundle
+        run: bash scripts/build-app.sh
+      - name: Package artifact
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/MCP Controller.app" "dist/MCP-Controller-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MCP-Controller-macOS
+          path: dist/MCP-Controller-macOS.zip
