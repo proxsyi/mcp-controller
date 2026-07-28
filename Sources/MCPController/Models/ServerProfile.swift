@@ -4,15 +4,9 @@ enum ExposureMode: String, Codable, CaseIterable, Identifiable {
     case disabled
     case tailnet
     case funnel
-
     var id: String { rawValue }
-
     var title: String {
-        switch self {
-        case .disabled: "Local only"
-        case .tailnet: "Tailnet"
-        case .funnel: "Public Funnel"
-        }
+        switch self { case .disabled: "Local only"; case .tailnet: "Tailnet"; case .funnel: "Public Funnel" }
     }
 }
 
@@ -20,11 +14,8 @@ struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
     var id = UUID()
     var name: String
     var token: String
-
     static func generate(name: String) -> GatewayClientCredential {
-        let token = [UUID(), UUID()]
-            .map { $0.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
-            .joined()
+        let token = [UUID(), UUID()].map { $0.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }.joined()
         return GatewayClientCredential(name: name, token: token)
     }
 }
@@ -39,6 +30,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     var environment: [String: String] = [:]
     var localPort = 3000
     var exposureMode: ExposureMode = .disabled
+    var tailscaleRouteEnabled = false
     var publicPort = 443
     var mountPath = "/"
     var tailscalePath = "/usr/local/bin/tailscale"
@@ -56,54 +48,33 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
         return prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
     }
-
-    var exposedLocalPort: Int {
-        exclusiveGatewayEnabled ? gatewayPort : localPort
-    }
+    var exposedLocalPort: Int { exclusiveGatewayEnabled ? gatewayPort : localPort }
 
     func validationErrors() -> [String] {
         var errors: [String] = []
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Name is required.")
-        }
-        if executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Executable path is required.")
-        }
-        if !(1...65535).contains(localPort) {
-            errors.append("Local port must be between 1 and 65535.")
-        }
-        if exposureMode == .funnel && ![443, 8443, 10000].contains(publicPort) {
-            errors.append("Funnel supports public ports 443, 8443, and 10000.")
-        }
-        if exposureMode != .disabled && tailscalePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors.append("Tailscale CLI path is required when exposure is enabled.")
-        }
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Name is required.") }
+        if executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Executable path is required.") }
+        if !(1...65535).contains(localPort) { errors.append("Local port must be between 1 and 65535.") }
+        if exposureMode == .funnel && ![443, 8443, 10000].contains(publicPort) { errors.append("Funnel supports public ports 443, 8443, and 10000.") }
+        if tailscaleRouteEnabled && exposureMode == .disabled { errors.append("Choose Tailnet or Public Funnel before enabling a Tailscale route.") }
+        if exposureMode != .disabled && tailscalePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Tailscale CLI path is required when exposure is configured.") }
         if exclusiveGatewayEnabled {
-            if !(1...65535).contains(gatewayPort) {
-                errors.append("Gateway port must be between 1 and 65535.")
-            }
-            if gatewayPort == localPort {
-                errors.append("Gateway and upstream MCP ports must be different.")
-            }
-            if !(30...86_400).contains(leaseTimeoutSeconds) {
-                errors.append("Exclusive lease timeout must be between 30 seconds and 24 hours.")
-            }
-            if clientCredentials.isEmpty {
-                errors.append("Add at least one AI access key before enabling exclusive access.")
-            }
+            if !(1...65535).contains(gatewayPort) { errors.append("Gateway port must be between 1 and 65535.") }
+            if gatewayPort == localPort { errors.append("Gateway and upstream MCP ports must be different.") }
+            if !(30...86_400).contains(leaseTimeoutSeconds) { errors.append("Exclusive lease timeout must be between 30 seconds and 24 hours.") }
+            if clientCredentials.isEmpty { errors.append("Add at least one AI access key before enabling exclusive access.") }
         }
         return errors
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, executablePath, arguments, workingDirectory, environment
-        case localPort, exposureMode, publicPort, mountPath, tailscalePath
+        case localPort, exposureMode, tailscaleRouteEnabled, publicPort, mountPath, tailscalePath
         case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort
         case leaseTimeoutSeconds, allowedOrigins, clientCredentials
     }
 
     init() {}
-
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -115,6 +86,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         environment = try values.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         localPort = try values.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
         exposureMode = try values.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled
+        tailscaleRouteEnabled = try values.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
         publicPort = try values.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443
         mountPath = try values.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
         tailscalePath = try values.decodeIfPresent(String.self, forKey: .tailscalePath) ?? "/usr/local/bin/tailscale"
@@ -129,26 +101,11 @@ struct ServerProfile: Identifiable, Codable, Hashable {
 }
 
 enum RuntimePhase: Equatable {
-    case stopped
-    case starting
-    case running
-    case stopping
-    case failed(String)
-
+    case stopped, starting, running, stopping, failed(String)
     var title: String {
-        switch self {
-        case .stopped: "Stopped"
-        case .starting: "Starting"
-        case .running: "Running"
-        case .stopping: "Stopping"
-        case .failed: "Failed"
-        }
+        switch self { case .stopped: "Stopped"; case .starting: "Starting"; case .running: "Running"; case .stopping: "Stopping"; case .failed: "Failed" }
     }
-
     var isActive: Bool {
-        switch self {
-        case .starting, .running, .stopping: true
-        case .stopped, .failed: false
-        }
+        switch self { case .starting, .running, .stopping: true; case .stopped, .failed: false }
     }
 }

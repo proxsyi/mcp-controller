@@ -1,10 +1,13 @@
 import SwiftUI
+import AppKit
 
 struct ExposureSettingsView: View {
+    @EnvironmentObject private var model: AppModel
     @Binding var profile: ServerProfile
     let phase: RuntimePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var advancedBehavior = false
+    @State private var dnsName = ""
 
     var body: some View {
         VStack(spacing: 18) {
@@ -14,59 +17,43 @@ struct ExposureSettingsView: View {
                         ForEach(ExposureMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }
                     .pickerStyle(.segmented)
-                    .disabled(phase.isActive)
+                    .disabled(profile.tailscaleRouteEnabled)
 
                     Label(exposureExplanation, systemImage: exposureSymbol)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.interpolate)
+                        .font(.caption).foregroundStyle(.secondary).contentTransition(.interpolate)
 
                     Divider()
 
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
                         GridRow {
                             Text("MCP server port").foregroundStyle(.secondary)
-                            TextField("4101", text: integerBinding(\.localPort))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 120)
-                                .disabled(phase.isActive)
+                            TextField("4101", text: integerBinding(\.localPort)).textFieldStyle(.roundedBorder).frame(width: 120).disabled(phase.isActive)
                         }
-
                         if profile.exposureMode != .disabled {
                             GridRow {
                                 Text("Public HTTPS port").foregroundStyle(.secondary)
                                 Picker("Public HTTPS port", selection: $profile.publicPort) {
                                     ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
-                                }
-                                .labelsHidden()
-                                .frame(width: 120)
-                                .disabled(phase.isActive)
+                                }.labelsHidden().frame(width: 120).disabled(profile.tailscaleRouteEnabled)
                             }
                             GridRow {
-                                Text("Mount path").foregroundStyle(.secondary)
-                                TextField("/mcp/server", text: $profile.mountPath)
-                                    .textFieldStyle(.roundedBorder)
-                                    .disabled(phase.isActive)
+                                Text("Address path").foregroundStyle(.secondary)
+                                TextField("/mcp/server", text: $profile.mountPath).textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
                             }
                             GridRow {
                                 Text("Tailscale CLI").foregroundStyle(.secondary)
-                                TextField("/usr/local/bin/tailscale", text: $profile.tailscalePath)
-                                    .textFieldStyle(.roundedBorder)
-                                    .disabled(phase.isActive)
+                                TextField("/usr/local/bin/tailscale", text: $profile.tailscalePath).textFieldStyle(.roundedBorder).disabled(profile.tailscaleRouteEnabled)
                             }
                         }
                     }
 
                     if phase.isActive {
-                        Label("Stop this server to edit connection settings.", systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    } else if profile.exposureMode != .disabled {
-                        endpointPreview
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        Label("Stop this server to change its MCP port.", systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
+
+            if profile.exposureMode != .disabled { routeControl }
 
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
 
@@ -75,65 +62,81 @@ struct ExposureSettingsView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         LabeledContent("Readiness timeout") {
                             HStack {
-                                Slider(value: $profile.startupDelaySeconds, in: 0...30, step: 0.5)
-                                    .frame(width: 220)
-                                Text("\(max(15, Int(profile.startupDelaySeconds)))s")
-                                    .monospacedDigit()
-                                    .frame(width: 42, alignment: .trailing)
+                                Slider(value: $profile.startupDelaySeconds, in: 0...30, step: 0.5).frame(width: 220)
+                                Text("\(max(15, Int(profile.startupDelaySeconds)))s").monospacedDigit().frame(width: 42, alignment: .trailing)
                             }
                         }
                         Toggle("Start when MCP Controller opens", isOn: $profile.autoStart)
-                    }
-                    .padding(.top, 12)
+                    }.padding(.top, 12)
                 }
             }
         }
+        .onAppear { refreshDNSName() }
+        .onChange(of: profile.tailscalePath) { _, _ in refreshDNSName() }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.exposureMode)
-        .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.exclusiveGatewayEnabled)
+        .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
     }
 
-    private var endpointPreview: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "link")
-            Text("HTTPS :\(profile.publicPort)\(profile.normalizedMountPath)")
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-            Spacer()
-            Text(profile.exposureMode == .funnel ? "Public" : "Tailnet only")
-                .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.12), in: Capsule())
+    private var routeControl: some View {
+        ContentCard(title: profile.exposureMode == .funnel ? "Tailscale Funnel" : "Tailscale Serve", symbol: profile.exposureMode == .funnel ? "globe" : "point.3.connected.trianglepath.dotted") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(profile.tailscaleRouteEnabled ? "Route is enabled" : "Route is off").fontWeight(.medium)
+                        Text(profile.tailscaleRouteEnabled ? "This MCP server is published at the address below." : "This MCP server is not currently routed through Tailscale.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(profile.tailscaleRouteEnabled ? "Stop Route" : "Start Route", systemImage: profile.tailscaleRouteEnabled ? "stop.fill" : "play.fill") {
+                        if profile.tailscaleRouteEnabled {
+                            if model.stopTailscaleRoute(profile) { profile.tailscaleRouteEnabled = false }
+                        } else {
+                            if model.startTailscaleRoute(profile) { profile.tailscaleRouteEnabled = true; refreshDNSName() }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(profile.tailscaleRouteEnabled ? .red : .blue)
+                    .disabled(!phase.isActive)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "link")
+                    Text(publicAddress).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)
+                    Spacer()
+                    Button("Copy address", systemImage: "square.on.square") {
+                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(publicAddress, forType: .string)
+                    }.labelStyle(.iconOnly).help("Copy route address")
+                }
+                .padding(10)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
+
+                if !phase.isActive {
+                    Label("Start the MCP server before starting its route.", systemImage: "info.circle").font(.caption).foregroundStyle(.orange)
+                }
+            }
         }
-        .padding(10)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
+
+    private var publicAddress: String {
+        TailscaleRouteService.address(for: profile, dnsName: dnsName.isEmpty ? "your-device.ts.net" : dnsName)
+    }
+
+    private func refreshDNSName() { dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? "" }
 
     private var exposureExplanation: String {
         switch profile.exposureMode {
         case .disabled: "Only apps on this Mac can reach the selected endpoint."
-        case .tailnet: "Only devices signed into your Tailscale network can connect."
-        case .funnel: "Creates a public HTTPS route through Tailscale Funnel."
+        case .tailnet: "Configure a private address available only inside your tailnet."
+        case .funnel: "Configure a public HTTPS address through Tailscale Funnel."
         }
     }
-
     private var exposureSymbol: String {
-        switch profile.exposureMode {
-        case .disabled: "laptopcomputer"
-        case .tailnet: "point.3.connected.trianglepath.dotted"
-        case .funnel: "globe"
-        }
+        switch profile.exposureMode { case .disabled: "laptopcomputer"; case .tailnet: "point.3.connected.trianglepath.dotted"; case .funnel: "globe" }
     }
-
     private func integerBinding(_ keyPath: WritableKeyPath<ServerProfile, Int>) -> Binding<String> {
-        Binding(
-            get: { String(profile[keyPath: keyPath]) },
-            set: { text in
-                let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) {
-                    profile[keyPath: keyPath] = value
-                }
-            }
-        )
+        Binding(get: { String(profile[keyPath: keyPath]) }, set: { text in
+            let digits = text.filter(\.isNumber)
+            if let value = Int(digits), (1...65535).contains(value) { profile[keyPath: keyPath] = value }
+        })
     }
 }
