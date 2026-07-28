@@ -1,0 +1,117 @@
+name: Fix compatibility endpoint and release v0.6.6
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-v0.6.6.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Apply compatibility endpoint fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gateway = Path("Sources/MCPController/Services/ExclusiveGateway.swift")
+          text = gateway.read_text()
+          old = '''        let endpoint = "\\(scheme)://\\(host)\\(request.target)"
+'''
+          new = '''        let publicTarget = GatewayRouteMapper.publicTarget(for: request.target, profile: profile)
+        let endpoint = "\\(scheme)://\\(host)\\(publicTarget)"
+'''
+          if old not in text:
+              raise SystemExit("Compatibility endpoint line not found")
+          text = text.replace(old, new, 1)
+
+          marker = '''enum GatewayRouteMapper {
+    static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
+'''
+          replacement = '''enum GatewayRouteMapper {
+    static func publicTarget(for requestTarget: String, profile: ServerProfile) -> String {
+        if requestTarget == "/" || requestTarget == profile.normalizedMountPath {
+            return profile.normalizedMountPath
+        }
+        return requestTarget
+    }
+
+    static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
+'''
+          if marker not in text:
+              raise SystemExit("GatewayRouteMapper marker not found")
+          gateway.write_text(text.replace(marker, replacement, 1))
+
+          tests = Path("Tests/MCPControllerTests/GatewayRouteMapperTests.swift")
+          text = tests.read_text()
+          addition = '''
+    func testCompatibilityHandshakeRestoresStrippedPublicMount() {
+        var profile = ServerProfile()
+        profile.mountPath = "/mcp/remote"
+
+        XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/", profile: profile), "/mcp/remote")
+        XCTAssertEqual(GatewayRouteMapper.publicTarget(for: "/mcp/remote", profile: profile), "/mcp/remote")
+    }
+'''
+          index = text.rfind("\n}")
+          if index < 0:
+              raise SystemExit("Test class closing brace not found")
+          tests.write_text(text[:index] + addition + text[index:])
+
+          changelog = Path("CHANGELOG.md")
+          text = changelog.read_text()
+          marker = "## Unreleased\n"
+          entry = """## Unreleased
+
+## v0.6.6
+
+### Fixed
+- Restored each server’s public mount path in the compatibility SSE endpoint advertised through a Tailscale-stripped route.
+- Prevented remote validators from following an incorrect host-root endpoint after a successful compatibility preflight.
+"""
+          if marker not in text:
+              raise SystemExit("CHANGELOG marker missing")
+          changelog.write_text(text.replace(marker, entry, 1))
+          PY
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.6.6" Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 13" Resources/Info.plist
+
+      - name: Test
+        run: swift test
+
+      - name: Build
+        run: bash scripts/build-app.sh
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/MCPController/Services/ExclusiveGateway.swift Tests/MCPControllerTests/GatewayRouteMapperTests.swift Resources/Info.plist CHANGELOG.md
+          git commit -m "fix(gateway): advertise canonical compatibility endpoint"
+          git push origin HEAD:main
+
+      - name: Sign and package
+        run: |
+          codesign --force --deep --sign - --identifier com.versyi.mcp-controller "dist/MCP Controller.app"
+          codesign --verify --deep --strict --verbose=2 "dist/MCP Controller.app"
+          ditto -c -k --sequesterRsrc --keepParent "dist/MCP Controller.app" "dist/MCP-Controller-macOS.zip"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          gh release create v0.6.6 "dist/MCP-Controller-macOS.zip" --target "$SHA" --generate-notes --title "MCP Controller v0.6.6"
