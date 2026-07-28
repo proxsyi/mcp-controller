@@ -234,11 +234,11 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         if request.method == "GET" {
             guard request.headers["mcp-session-id"] != nil else {
-                sendError(connection, status: 400, message: "MCP stream requests must include an mcp-session-id header.", requestID: request.jsonRPCID)
+                sendError(connection, status: 405, message: "This MCP endpoint does not offer a pre-session SSE stream. Initialize with POST first, then retry GET with Mcp-Session-Id.", requestID: request.jsonRPCID)
                 return
             }
             guard arbiter.active != nil else {
-                sendError(connection, status: 409, message: "No active MCP session is available. Initialize first, then retry.", requestID: request.jsonRPCID)
+                sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID)
                 return
             }
             publishState()
@@ -437,6 +437,7 @@ private enum HTTPStatus {
         case 400: "Bad Request"
         case 401: "Unauthorized"
         case 403: "Forbidden"
+        case 404: "Not Found"
         case 405: "Method Not Allowed"
         case 409: "Conflict"
         case 413: "Content Too Large"
