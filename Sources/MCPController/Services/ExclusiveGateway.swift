@@ -334,10 +334,10 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func sendAsync(_ connection: NWConnection, data: Data) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
+                else { continuation.resume(returning: ()) }
             })
         }
     }
