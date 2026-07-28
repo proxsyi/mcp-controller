@@ -10,6 +10,7 @@ struct RootView: View {
         guard !searchText.isEmpty else { return model.profiles }
         return model.profiles.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.description.localizedCaseInsensitiveContains(searchText) ||
             $0.exposureMode.title.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -120,9 +121,10 @@ private struct ServerRow: View {
                 Text(profile.name)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                Text(profile.exposureMode.title)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             Spacer(minLength: 8)
             Circle()
@@ -136,6 +138,11 @@ private struct ServerRow: View {
         .onHover { isHovering in
             withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = isHovering }
         }
+    }
+
+    private var subtitle: String {
+        let trimmed = profile.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? profile.exposureMode.title : trimmed
     }
 
     private var statusColor: Color {
