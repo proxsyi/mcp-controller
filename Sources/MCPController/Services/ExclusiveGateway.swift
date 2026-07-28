@@ -224,12 +224,25 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func handle(_ request: HTTPRequest, connection: NWConnection) {
-        guard request.method == "POST" || request.method == "DELETE" else {
-            sendError(connection, status: 405, message: "This gateway accepts MCP POST and DELETE requests. SSE GET is not enabled.", requestID: request.jsonRPCID)
+        guard request.method == "POST" || request.method == "DELETE" || request.method == "GET" else {
+            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests.", requestID: request.jsonRPCID)
             return
         }
         if let origin = request.headers["origin"], !profile.allowedOrigins.contains(origin) {
             sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID)
+            return
+        }
+        if request.method == "GET" {
+            guard request.headers["mcp-session-id"] != nil else {
+                sendError(connection, status: 400, message: "MCP stream requests must include an mcp-session-id header.", requestID: request.jsonRPCID)
+                return
+            }
+            guard arbiter.active != nil else {
+                sendError(connection, status: 409, message: "No active MCP session is available. Initialize first, then retry.", requestID: request.jsonRPCID)
+                return
+            }
+            publishState()
+            proxy(request, connection: connection)
             return
         }
         guard let authorization = request.headers["authorization"], authorization.lowercased().hasPrefix("bearer ") else {
@@ -245,7 +258,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         switch arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name) {
         case .allowed:
             publishState()
-            proxy(request, credential: credential, connection: connection)
+            proxy(request, connection: connection)
         case .waiting:
             publishState()
             logHandler("\(credential.name) requested access while another AI holds the lease.\n")
@@ -259,7 +272,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
     }
 
-    private func proxy(_ request: HTTPRequest, credential: GatewayClientCredential, connection: NWConnection) {
+    private func proxy(_ request: HTTPRequest, connection: NWConnection) {
         let target = upstreamTarget(for: request.target)
         guard let url = URL(string: "http://127.0.0.1:\(profile.localPort)\(target)") else {
             sendError(connection, status: 502, message: "The upstream MCP URL is invalid.", requestID: request.jsonRPCID)

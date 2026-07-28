@@ -4,6 +4,15 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.2
+
+### Fixed
+- Corrected the bundled app version so in-app updates no longer reinstall a 0.6.0 build.
+- Added GET handling in the exclusive gateway for remote MCP stream requests.
+
+### Changed
+- Condensed Exposure settings into compact cards and removed the oversized remote summary block.
+
 ### Added
 - Native SwiftUI macOS controller window and menu-bar controls.
 - Add, edit, duplicate, start, stop, and remove MCP server profiles.
