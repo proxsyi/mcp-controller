@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 private enum DetailSection: String, CaseIterable, Identifiable {
     case process = "Process"
@@ -284,6 +285,12 @@ struct ServerDetailView: View {
                     Text("The newest 100 KB is kept in memory.")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    Button("Copy logs", systemImage: "square.on.square") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.logs[draft.id, default: ""], forType: .string)
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Copy logs")
                     Button("Clear", systemImage: "trash") { model.clearLog(for: draft.id) }
                 }
             }
