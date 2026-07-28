@@ -1,22 +1,15 @@
 import Foundation
 
 enum ExposureMode: String, Codable, CaseIterable, Identifiable {
-    case disabled
-    case tailnet
-    case funnel
+    case disabled, tailnet, funnel
     var id: String { rawValue }
-    var title: String {
-        switch self { case .disabled: "Local only"; case .tailnet: "Tailnet"; case .funnel: "Public Funnel" }
-    }
+    var title: String { switch self { case .disabled: "Local only"; case .tailnet: "Tailnet"; case .funnel: "Public Funnel" } }
 }
 
 struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
-    var id = UUID()
-    var name: String
-    var token: String
+    var id = UUID(); var name: String; var token: String
     static func generate(name: String) -> GatewayClientCredential {
-        let token = [UUID(), UUID()].map { $0.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }.joined()
-        return GatewayClientCredential(name: name, token: token)
+        GatewayClientCredential(name: name, token: [UUID(), UUID()].map { $0.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }.joined())
     }
 }
 
@@ -33,7 +26,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     var tailscaleRouteEnabled = false
     var publicPort = 443
     var mountPath = "/"
-    var tailscalePath = "/usr/local/bin/tailscale"
+    var tailscalePath = TailscaleRouteService.defaultCLIPath
     var startupDelaySeconds = 1.0
     var autoStart = false
     var exclusiveGatewayEnabled = false
@@ -57,7 +50,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
         if !(1...65535).contains(localPort) { errors.append("Local port must be between 1 and 65535.") }
         if exposureMode == .funnel && ![443, 8443, 10000].contains(publicPort) { errors.append("Funnel supports public ports 443, 8443, and 10000.") }
         if tailscaleRouteEnabled && exposureMode == .disabled { errors.append("Choose Tailnet or Public Funnel before enabling a Tailscale route.") }
-        if exposureMode != .disabled && tailscalePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Tailscale CLI path is required when exposure is configured.") }
+        if exposureMode != .disabled && !TailscaleRouteService.isCLIAvailable(at: tailscalePath) { errors.append("The Tailscale CLI could not be found at \(tailscalePath).") }
         if exclusiveGatewayEnabled {
             if !(1...65535).contains(gatewayPort) { errors.append("Gateway port must be between 1 and 65535.") }
             if gatewayPort == localPort { errors.append("Gateway and upstream MCP ports must be different.") }
@@ -70,42 +63,39 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, description, executablePath, arguments, workingDirectory, environment
         case localPort, exposureMode, tailscaleRouteEnabled, publicPort, mountPath, tailscalePath
-        case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort
-        case leaseTimeoutSeconds, allowedOrigins, clientCredentials
+        case startupDelaySeconds, autoStart, exclusiveGatewayEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
     }
 
     init() {}
     init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        name = try values.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
-        description = try values.decodeIfPresent(String.self, forKey: .description) ?? ""
-        executablePath = try values.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
-        arguments = try values.decodeIfPresent([String].self, forKey: .arguments) ?? []
-        workingDirectory = try values.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
-        environment = try values.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
-        localPort = try values.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
-        exposureMode = try values.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled
-        tailscaleRouteEnabled = try values.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
-        publicPort = try values.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443
-        mountPath = try values.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
-        tailscalePath = try values.decodeIfPresent(String.self, forKey: .tailscalePath) ?? "/usr/local/bin/tailscale"
-        startupDelaySeconds = try values.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1
-        autoStart = try values.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
-        exclusiveGatewayEnabled = try values.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
-        gatewayPort = try values.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
-        leaseTimeoutSeconds = try values.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900
-        allowedOrigins = try values.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
-        clientCredentials = try values.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        id = try v.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try v.decodeIfPresent(String.self, forKey: .name) ?? "New MCP Server"
+        description = try v.decodeIfPresent(String.self, forKey: .description) ?? ""
+        executablePath = try v.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+        arguments = try v.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        workingDirectory = try v.decodeIfPresent(String.self, forKey: .workingDirectory) ?? ""
+        environment = try v.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        localPort = try v.decodeIfPresent(Int.self, forKey: .localPort) ?? 3000
+        exposureMode = try v.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled
+        tailscaleRouteEnabled = try v.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
+        publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443
+        mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
+        let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
+        tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
+        startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1
+        autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
+        exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
+        gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
+        leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900
+        allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
+        clientCredentials = try v.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
     }
 }
 
 enum RuntimePhase: Equatable {
     case stopped, starting, running, stopping, failed(String)
-    var title: String {
-        switch self { case .stopped: "Stopped"; case .starting: "Starting"; case .running: "Running"; case .stopping: "Stopping"; case .failed: "Failed" }
-    }
-    var isActive: Bool {
-        switch self { case .starting, .running, .stopping: true; case .stopped, .failed: false }
-    }
+    var title: String { switch self { case .stopped: "Stopped"; case .starting: "Starting"; case .running: "Running"; case .stopping: "Stopping"; case .failed: "Failed" } }
+    var isActive: Bool { switch self { case .starting, .running, .stopping: true; case .stopped, .failed: false } }
+    var isFailed: Bool { if case .failed = self { return true }; return false }
 }
