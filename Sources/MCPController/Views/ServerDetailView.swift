@@ -162,6 +162,10 @@ struct ServerDetailView: View {
                         TextField("Server name", text: $draft.name)
                     }
                     GridRow {
+                        Text("Description").foregroundStyle(.secondary)
+                        TextField("What this server is for", text: $draft.description)
+                    }
+                    GridRow {
                         Text("Executable").foregroundStyle(.secondary)
                         TextField("/absolute/path/to/executable", text: $draft.executablePath)
                     }
