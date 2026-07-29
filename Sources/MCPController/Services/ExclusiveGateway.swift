@@ -239,12 +239,20 @@ private final class ExclusiveGateway: @unchecked Sendable {
         let accept = request.headers["accept"] ?? "none"
         let protocolVersion = request.headers["mcp-protocol-version"] ?? request.requestedProtocolVersion ?? "none"
         logHandler("Gateway request: \(request.method) \(request.target); session=\(session); accept=\(accept); protocol=\(protocolVersion); compatibility=\(profile.remoteClientCompatibilityEnabled).\n")
-        guard request.method == "POST" || request.method == "DELETE" || request.method == "GET" else {
-            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests.", requestID: request.jsonRPCID)
+        guard GatewayRequestMethodPolicy.accepts(
+            request.method,
+            remoteClientCompatibilityEnabled: profile.remoteClientCompatibilityEnabled
+        ) else {
+            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID)
             return
         }
         if let origin = request.headers["origin"], !profile.allowedOrigins.contains(origin) {
             sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID)
+            return
+        }
+        if request.method == "HEAD" {
+            logHandler("Compatibility probe accepted with HTTP 200.\n")
+            sendHeadOK(connection)
             return
         }
         if request.method == "GET" {
@@ -474,6 +482,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
     }
 
+    private func sendHeadOK(_ connection: NWConnection) {
+        let response = Data(
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8
+        )
+        send(connection, data: response)
+    }
+
     private func sendAccepted(_ connection: NWConnection) {
         let response = Data("HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
         send(connection, data: response)
@@ -509,6 +524,19 @@ private final class ExclusiveGateway: @unchecked Sendable {
 
     private func publishState() {
         stateHandler(arbiter.active, arbiter.pending.sorted { $0.requestedAt < $1.requestedAt })
+    }
+}
+
+enum GatewayRequestMethodPolicy {
+    static func accepts(_ method: String, remoteClientCompatibilityEnabled: Bool) -> Bool {
+        switch method.uppercased() {
+        case "POST", "GET", "DELETE":
+            true
+        case "HEAD":
+            remoteClientCompatibilityEnabled
+        default:
+            false
+        }
     }
 }
 
