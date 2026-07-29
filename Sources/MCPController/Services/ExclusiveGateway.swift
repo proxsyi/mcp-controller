@@ -369,6 +369,10 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     if let error {
                         self.sendError(connection, status: 502, message: "Upstream MCP request failed: \(error.localizedDescription)", requestID: request.jsonRPCID)
                         upstream.cancel()
+                    } else if self.profile.remoteClientCompatibilityEnabled && request.isJSONRPCNotification {
+                        self.logHandler("Compatibility acknowledgement: accepted JSON-RPC notification \(request.jsonRPCMethod ?? "unknown") for upstream delivery.\n")
+                        self.sendAccepted(connection)
+                        self.drainUpstreamResponse(upstream)
                     } else {
                         self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge)
                     }
@@ -464,6 +468,18 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
     }
 
+    private func sendAccepted(_ connection: NWConnection) {
+        let response = Data("HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+        send(connection, data: response)
+    }
+
+    private func drainUpstreamResponse(_ upstream: NWConnection) {
+        upstream.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+            upstream.cancel()
+        }
+        queue.asyncAfter(deadline: .now() + 5) { upstream.cancel() }
+    }
+
     private func sendError(
         _ connection: NWConnection,
         status: Int,
@@ -550,6 +566,17 @@ private struct HTTPRequest {
               object["method"] as? String == "initialize",
               let params = object["params"] as? [String: Any] else { return nil }
         return params["protocolVersion"] as? String
+    }
+
+    var jsonRPCMethod: String? {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        return object["method"] as? String
+    }
+
+    var isJSONRPCNotification: Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              object["method"] is String else { return false }
+        return object["id"] == nil
     }
 
     static func parse(_ data: Data) -> HTTPRequest? {

@@ -63,6 +63,7 @@ request() {
   curl -sS --no-buffer --max-time 8 -D "$headers" -o "$body" "$@"
   local code=$?
   set -e
+  touch "$headers" "$body"
   sed -E 's/^(authorization:).*/\1 <redacted>/I' "$headers"
   echo "curl exit: $code"
   echo "body:"

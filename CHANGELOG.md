@@ -4,6 +4,14 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.2
+
+### Fixed
+- Added a generic compatibility acknowledgement for JSON-RPC notifications after successful upstream delivery.
+- Returned the MCP-required HTTP 202 response immediately instead of allowing proxy timeouts to become HTTP 502 errors.
+- Drained the upstream notification response without blocking the remote client.
+- Kept the validation report running when a timed-out request produced no body file.
+
 ## v0.7.1
 
 ### Fixed
