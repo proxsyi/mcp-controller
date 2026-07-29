@@ -4,6 +4,13 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.4
+
+### Fixed
+- Closed the public gateway socket immediately after a complete initialize response was flushed.
+- Prevented the next request from entering the brief interval between the HTTP response boundary and the upstream TCP close event.
+- Allowed `notifications/initialized` to reach a fresh gateway connection instead of receiving a proxy-generated HTTP 502.
+
 ## v0.7.3
 
 ### Fixed

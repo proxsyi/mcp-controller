@@ -435,10 +435,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
             }
 
             var outgoing: Data?
+            var responseComplete = false
             if let data, !data.isEmpty {
                 if let initializeBridge {
                     let result = initializeBridge.consume(data, isFinal: isComplete || error != nil)
                     outgoing = result?.data
+                    responseComplete = result?.responseComplete == true
                     if let sessionID = result?.sessionID, let upstreamVersion = result?.upstreamVersion {
                         self.bridgedProtocolVersions[sessionID] = upstreamVersion
                         self.logHandler("Protocol bridge active: client=\(initializeBridge.requestedVersion), upstream=\(upstreamVersion), session=\(sessionID.prefix(8))….\n")
@@ -450,12 +452,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 outgoing = initializeBridge.finish()?.data
             }
 
+            let closeAfterResponse = responseComplete
             if let outgoing, !outgoing.isEmpty {
                 client.send(content: outgoing, completion: .contentProcessed { sendError in
                     if sendError != nil {
                         upstream.cancel()
                         client.cancel()
-                    } else if isComplete || error != nil {
+                    } else if closeAfterResponse || isComplete || error != nil {
                         upstream.cancel()
                         client.cancel()
                     } else {

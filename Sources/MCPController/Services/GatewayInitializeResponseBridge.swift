@@ -4,6 +4,7 @@ struct GatewayInitializeBridgeOutput {
     let data: Data
     let sessionID: String?
     let upstreamVersion: String?
+    let responseComplete: Bool
 }
 
 final class GatewayInitializeResponseBridge: @unchecked Sendable {
@@ -14,7 +15,7 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
     init(requestedVersion: String) { self.requestedVersion = requestedVersion }
 
     func consume(_ data: Data, isFinal: Bool = false) -> GatewayInitializeBridgeOutput? {
-        if resolved { return .init(data: data, sessionID: nil, upstreamVersion: nil) }
+        if resolved { return .init(data: data, sessionID: nil, upstreamVersion: nil, responseComplete: false) }
         buffer.append(data)
         let separator = Data("\r\n\r\n".utf8)
         guard let split = buffer.range(of: separator) else { return isFinal ? finish() : nil }
@@ -29,10 +30,10 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
                 var output = header
                 output.append(HTTPChunkedBodyEncoder.encode(transformed.body))
                 output.append(Data("0\r\n\r\n".utf8))
-                return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream)
+                return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, responseComplete: true)
             }
             if let raw = transform(buffer) {
-                return resolve(raw.body, sessionID: sessionID(in: headerText), upstream: raw.upstream)
+                return resolve(raw.body, sessionID: sessionID(in: headerText), upstream: raw.upstream, responseComplete: false)
             }
             return isFinal || buffer.count > 1_048_576 ? finish() : nil
         }
@@ -40,7 +41,7 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
         if let length = contentLength(in: headerText), encodedBody.count < length { return isFinal ? finish() : nil }
         if let transformed = transform(encodedBody) {
             var output = header; output.append(transformed.body)
-            return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream)
+            return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, responseComplete: true)
         }
         return isFinal || buffer.count > 1_048_576 ? finish() : nil
     }
@@ -48,12 +49,17 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
     func finish() -> GatewayInitializeBridgeOutput? {
         guard !buffer.isEmpty else { return nil }
         resolved = true; let output = buffer; buffer.removeAll()
-        return .init(data: output, sessionID: nil, upstreamVersion: nil)
+        return .init(data: output, sessionID: nil, upstreamVersion: nil, responseComplete: true)
     }
 
-    private func resolve(_ data: Data, sessionID: String?, upstream: String?) -> GatewayInitializeBridgeOutput {
+    private func resolve(
+        _ data: Data,
+        sessionID: String?,
+        upstream: String?,
+        responseComplete: Bool
+    ) -> GatewayInitializeBridgeOutput {
         resolved = true; buffer.removeAll()
-        return .init(data: data, sessionID: sessionID, upstreamVersion: upstream)
+        return .init(data: data, sessionID: sessionID, upstreamVersion: upstream, responseComplete: responseComplete)
     }
 
     private func transform(_ data: Data) -> (body: Data, upstream: String)? {
