@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
 
     private let store = ProfileStore()
     private let gatewayManager = ExclusiveGatewayManager()
+    private let terminalControl = TerminalControlService()
     private var processes: [UUID: Process] = [:]
     private var adoptedListeners: [UUID: ListeningProcess] = [:]
     private var outputPipes: [UUID: [Pipe]] = [:]
@@ -37,6 +38,9 @@ final class AppModel: ObservableObject {
             for profile in profiles where profile.autoStart && !phase(for: profile.id).isActive { start(profile) }
             if tailscaleFunnelRunning { startTailscaleFunnel() }
         } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
+        terminalControl.start { [weak self] request in
+            await MainActor.run { self?.handleTerminalCommand(request) ?? .error("MCP Controller is unavailable.") }
+        }
     }
 
     func phase(for id: UUID) -> RuntimePhase { phases[id] ?? .stopped }
@@ -96,6 +100,7 @@ final class AppModel: ObservableObject {
 
         userStoppedProfiles.remove(profile.id); phases[profile.id] = .starting
         appendLog(profile.id, "Starting \(profile.name)…\n")
+        appendLog(profile.id, profile.startupDiagnosticSummary)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: profile.executablePath)
         process.arguments = profile.arguments.map { $0.replacingOccurrences(of: "{port}", with: String(profile.localPort)) }

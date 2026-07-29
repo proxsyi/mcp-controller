@@ -12,6 +12,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$ROOT/.build/release/MCPController" "$CONTENTS/MacOS/MCPController"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
-chmod +x "$CONTENTS/MacOS/MCPController"
+cp "$ROOT/Resources/mcpctl" "$CONTENTS/Resources/mcpctl"
+chmod +x "$CONTENTS/MacOS/MCPController" "$CONTENTS/Resources/mcpctl"
 
 echo "Built $APP_DIR"

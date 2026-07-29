@@ -4,6 +4,16 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.0
+
+### Added
+- Added `mcpctl` terminal control for server lifecycle, profiles, logs, routes, leases, Funnel, and global policy.
+- Added complete redacted server configuration snapshots at every start.
+- Added gateway protocol and request diagnostics for remote-client validation.
+
+### Fixed
+- Made initialize protocol bridging resilient to split and chunked upstream responses.
+
 ## v0.6.9
 
 ### Fixed

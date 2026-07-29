@@ -225,6 +225,10 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func handle(_ request: HTTPRequest, connection: NWConnection) {
+        let session = request.headers["mcp-session-id"].map { "present (\($0.prefix(8))…)" } ?? "none"
+        let accept = request.headers["accept"] ?? "none"
+        let protocolVersion = request.headers["mcp-protocol-version"] ?? request.requestedProtocolVersion ?? "none"
+        logHandler("Gateway request: \(request.method) \(request.target); session=\(session); accept=\(accept); protocol=\(protocolVersion); compatibility=\(profile.remoteClientCompatibilityEnabled).\n")
         guard request.method == "POST" || request.method == "DELETE" || request.method == "GET" else {
             sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests.", requestID: request.jsonRPCID)
             return
@@ -420,6 +424,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     outgoing = result?.data
                     if let sessionID = result?.sessionID, let upstreamVersion = result?.upstreamVersion {
                         self.bridgedProtocolVersions[sessionID] = upstreamVersion
+                        self.logHandler("Protocol bridge active: client=\(initializeBridge.requestedVersion), upstream=\(upstreamVersion), session=\(sessionID.prefix(8))….\n")
                     }
                 } else {
                     outgoing = data

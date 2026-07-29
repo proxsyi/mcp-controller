@@ -10,7 +10,9 @@ python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
     profiles = json.load(f)
-profile = next((p for p in profiles if p.get("name") == "Remote macOS Use"), None)
+profile = next((p for p in profiles if p.get("name", "").casefold() == "remote macos use"), None)
+if not profile:
+    profile = next((p for p in profiles if p.get("mountPath") == "/mcp/remote" or p.get("gatewayPort") == 39003), None)
 if not profile:
     raise SystemExit("Remote macOS Use profile not found")
 credential = next((c for c in profile.get("clientCredentials", []) if c.get("name") == "Notion"), None)
@@ -73,7 +75,7 @@ request pre_session_get \
   -H "Accept: text/event-stream" \
   "$URL"
 
-INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"notion-validator-emulator","version":"1.0"}}}'
+INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"notion-validator-emulator","version":"1.0"}}}'
 request initialize_json_only \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/json" \
