@@ -4,6 +4,14 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.3
+
+### Fixed
+- Closed each upstream HTTP connection after its single proxied MCP response.
+- Prevented Tailscale from reusing an initialize backend connection that the gateway was still draining.
+- Fixed the first post-initialize request failing with HTTP 502 while the following request opened a fresh connection.
+- Treated an already-exited adopted process as a successful stop instead of a failure.
+
 ## v0.7.2
 
 ### Fixed

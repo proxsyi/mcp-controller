@@ -413,7 +413,10 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         headers += "User-Agent: MCP Controller\r\n"
         headers += "Content-Length: \(request.body.count)\r\n"
-        headers += "Connection: keep-alive\r\n\r\n"
+        // Each accepted gateway socket currently carries exactly one HTTP request.
+        // Ask the upstream to close after its response so reverse proxies never reuse
+        // a backend connection that the gateway is still draining.
+        headers += "Connection: close\r\n\r\n"
         var data = Data(headers.utf8)
         data.append(request.body)
         return data

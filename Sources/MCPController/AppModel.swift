@@ -180,7 +180,13 @@ final class AppModel: ObservableObject {
         phases[profile.id] = .stopping; userStoppedProfiles.insert(profile.id); gatewayManager.stop(profileID: profile.id)
         if let listener = adoptedListeners.removeValue(forKey: profile.id) {
             do { try PortInspector.terminate(listener) }
-            catch { fail(profile, "Could not stop adopted PID \(listener.pid): \(error.localizedDescription)"); return }
+            catch {
+                if PortInspector.listener(on: profile.localPort)?.pid == listener.pid {
+                    fail(profile, "Could not stop adopted PID \(listener.pid): \(error.localizedDescription)")
+                    return
+                }
+                appendLog(profile.id, "Adopted PID \(listener.pid) had already exited; continuing shutdown.\n")
+            }
         } else if let process = processes[profile.id], process.isRunning { process.terminate() }
         processes.removeValue(forKey: profile.id); outputPipes.removeValue(forKey: profile.id); phases[profile.id] = .stopped
         appendLog(profile.id, "Stopped server and released the AI lease. Tailscale Funnel is managed separately.\n")
