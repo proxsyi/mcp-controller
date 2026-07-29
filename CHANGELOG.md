@@ -4,6 +4,13 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.6.9
+
+### Fixed
+- Added a generic per-session MCP protocol bridge for compatibility mode.
+- Preserved the upstream protocol version internally while presenting the client-requested dated protocol version to strict hosted clients.
+- Rewrote subsequent `MCP-Protocol-Version` headers back to each session’s negotiated upstream version.
+
 ## v0.6.8
 
 ### Fixed

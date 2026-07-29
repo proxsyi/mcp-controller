@@ -129,6 +129,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
     private let stateHandler: @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     private let logHandler: @Sendable (String) -> Void
     private var arbiter: ExclusiveLeaseArbiter
+    private var bridgedProtocolVersions: [String: String] = [:]
 
     init(
         profile: ServerProfile,
@@ -337,6 +338,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
 
         let target = GatewayRouteMapper.upstreamTarget(for: request.target, profile: profile)
+        let responseBridge: GatewayInitializeResponseBridge?
+        if profile.remoteClientCompatibilityEnabled, let requestedVersion = request.requestedProtocolVersion {
+            responseBridge = GatewayInitializeResponseBridge(requestedVersion: requestedVersion)
+        } else {
+            responseBridge = nil
+        }
         let upstream = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
         upstream.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
@@ -349,7 +356,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         self.sendError(connection, status: 502, message: "Upstream MCP request failed: \(error.localizedDescription)", requestID: request.jsonRPCID)
                         upstream.cancel()
                     } else {
-                        self.pipeUpstreamResponse(upstream, to: connection)
+                        self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge)
                     }
                 })
             case .failed(let error):
@@ -368,8 +375,17 @@ private final class ExclusiveGateway: @unchecked Sendable {
         var headers = "\(request.method) \(target) HTTP/1.1\r\n"
         headers += "Host: 127.0.0.1:\(profile.localPort)\r\n"
         for (name, value) in request.headers.sorted(by: { $0.key < $1.key }) {
-            guard !["accept", "authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
+            guard !["accept", "authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "mcp-protocol-version", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
             headers += "\(name): \(value)\r\n"
+        }
+        var protocolVersion = request.headers["mcp-protocol-version"]
+        if profile.remoteClientCompatibilityEnabled,
+           let sessionID = request.headers["mcp-session-id"],
+           let bridgedVersion = bridgedProtocolVersions[sessionID] {
+            protocolVersion = bridgedVersion
+        }
+        if let protocolVersion {
+            headers += "MCP-Protocol-Version: \(protocolVersion)\r\n"
         }
         if let accept = GatewayRequestHeaderAdapter.acceptValue(
             original: request.headers["accept"],
@@ -385,15 +401,35 @@ private final class ExclusiveGateway: @unchecked Sendable {
         return data
     }
 
-    private func pipeUpstreamResponse(_ upstream: NWConnection, to client: NWConnection) {
+    private func pipeUpstreamResponse(
+        _ upstream: NWConnection,
+        to client: NWConnection,
+        initializeBridge: GatewayInitializeResponseBridge? = nil
+    ) {
         upstream.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
             guard let self else {
                 upstream.cancel()
                 client.cancel()
                 return
             }
+
+            var outgoing: Data?
             if let data, !data.isEmpty {
-                client.send(content: data, completion: .contentProcessed { sendError in
+                if let initializeBridge {
+                    let result = initializeBridge.consume(data, isFinal: isComplete || error != nil)
+                    outgoing = result?.data
+                    if let sessionID = result?.sessionID, let upstreamVersion = result?.upstreamVersion {
+                        self.bridgedProtocolVersions[sessionID] = upstreamVersion
+                    }
+                } else {
+                    outgoing = data
+                }
+            } else if let initializeBridge, isComplete || error != nil {
+                outgoing = initializeBridge.finish()?.data
+            }
+
+            if let outgoing, !outgoing.isEmpty {
+                client.send(content: outgoing, completion: .contentProcessed { sendError in
                     if sendError != nil {
                         upstream.cancel()
                         client.cancel()
@@ -401,14 +437,14 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         upstream.cancel()
                         client.cancel()
                     } else {
-                        self.pipeUpstreamResponse(upstream, to: client)
+                        self.pipeUpstreamResponse(upstream, to: client, initializeBridge: initializeBridge)
                     }
                 })
             } else if isComplete || error != nil {
                 upstream.cancel()
                 client.cancel()
             } else {
-                self.pipeUpstreamResponse(upstream, to: client)
+                self.pipeUpstreamResponse(upstream, to: client, initializeBridge: initializeBridge)
             }
         }
     }
@@ -492,6 +528,13 @@ private struct HTTPRequest {
     var jsonRPCID: Any {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return NSNull() }
         return object["id"] ?? NSNull()
+    }
+
+    var requestedProtocolVersion: String? {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              object["method"] as? String == "initialize",
+              let params = object["params"] as? [String: Any] else { return nil }
+        return params["protocolVersion"] as? String
     }
 
     static func parse(_ data: Data) -> HTTPRequest? {
