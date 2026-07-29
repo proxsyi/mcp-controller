@@ -4,6 +4,13 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.1
+
+### Fixed
+- Made exclusive gateway shutdown synchronous before a server restart.
+- Waited for the old gateway listener to release its port before binding a replacement.
+- Prevented rapid stop/start and adopted-listener restarts from failing with `NWError 48: Address already in use`.
+
 ## v0.7.0
 
 ### Added

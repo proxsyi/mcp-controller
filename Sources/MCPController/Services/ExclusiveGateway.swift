@@ -79,6 +79,9 @@ final class ExclusiveGatewayManager: @unchecked Sendable {
     func start(profile: ServerProfile) throws {
         guard profile.exclusiveGatewayEnabled else { return }
         stop(profileID: profile.id)
+        for _ in 0..<20 where PortInspector.listener(on: profile.gatewayPort) != nil {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
         let gateway = try ExclusiveGateway(
             profile: profile,
             stateHandler: { [weak self] active, pending in
@@ -125,6 +128,7 @@ final class ExclusiveGatewayManager: @unchecked Sendable {
 private final class ExclusiveGateway: @unchecked Sendable {
     private let profile: ServerProfile
     private let queue: DispatchQueue
+    private let queueKey = DispatchSpecificKey<Void>()
     private let listener: NWListener
     private let stateHandler: @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     private let logHandler: @Sendable (String) -> Void
@@ -141,6 +145,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         self.logHandler = logHandler
         self.arbiter = ExclusiveLeaseArbiter(timeout: TimeInterval(profile.leaseTimeoutSeconds))
         self.queue = DispatchQueue(label: "com.versyi.mcp-controller.gateway.\(profile.id.uuidString)")
+        self.queue.setSpecific(key: queueKey, value: ())
         guard let port = NWEndpoint.Port(rawValue: UInt16(profile.gatewayPort)) else {
             throw GatewayError.invalidPort
         }
@@ -168,10 +173,15 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     func stop() {
-        queue.async { [weak self] in
-            self?.listener.cancel()
-            self?.arbiter.release()
-            self?.publishState()
+        let shutdown = { [self] in
+            listener.cancel()
+            arbiter.release()
+            publishState()
+        }
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            shutdown()
+        } else {
+            queue.sync(execute: shutdown)
         }
     }
 
