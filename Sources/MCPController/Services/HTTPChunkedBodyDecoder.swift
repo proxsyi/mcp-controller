@@ -2,6 +2,10 @@ import Foundation
 
 enum HTTPChunkedBodyDecoder {
     static func decode(_ data: Data) -> Data? {
+        decodeWithConsumed(data)?.body
+    }
+
+    static func decodeWithConsumed(_ data: Data) -> (body: Data, bytesConsumed: Int)? {
         let bytes = [UInt8](data)
         var cursor = 0
         var decoded = Data()
@@ -26,11 +30,13 @@ enum HTTPChunkedBodyDecoder {
 
             if size == 0 {
                 guard cursor + 1 < bytes.count else { return nil }
-                if bytes[cursor] == 13 && bytes[cursor + 1] == 10 { return decoded }
+                if bytes[cursor] == 13 && bytes[cursor + 1] == 10 {
+                    return (decoded, cursor + 2)
+                }
                 var index = cursor
                 while index + 3 < bytes.count {
                     if bytes[index] == 13 && bytes[index + 1] == 10 && bytes[index + 2] == 13 && bytes[index + 3] == 10 {
-                        return decoded
+                        return (decoded, index + 4)
                     }
                     index += 1
                 }

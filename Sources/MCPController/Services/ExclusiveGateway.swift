@@ -134,6 +134,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
     private let logHandler: @Sendable (String) -> Void
     private var arbiter: ExclusiveLeaseArbiter
     private var bridgedProtocolVersions: [String: String] = [:]
+    private var upstreamCapabilities: [String: Set<String>] = [:]
 
     init(
         profile: ServerProfile,
@@ -218,61 +219,109 @@ private final class ExclusiveGateway: @unchecked Sendable {
             guard let self else { return }
             var next = buffer
             if let data { next.append(data) }
-            if next.count > 2_097_152 {
-                self.sendError(connection, status: 413, message: "MCP request is too large.", requestID: NSNull())
-                return
-            }
-            if let request = HTTPRequest.parse(next) {
-                self.handle(request, connection: connection)
-                return
-            }
-            if isComplete || error != nil {
-                self.sendError(connection, status: 400, message: "Malformed HTTP request.", requestID: NSNull())
-                return
-            }
-            self.receive(connection, buffer: next)
+            self.processIncomingData(connection, buffer: next, isComplete: isComplete, didError: error != nil)
         }
     }
 
-    private func handle(_ request: HTTPRequest, connection: NWConnection) {
+    private func processIncomingData(_ connection: NWConnection, buffer: Data, isComplete: Bool = false, didError: Bool = false) {
+        if buffer.count > 2_097_152 {
+            sendError(connection, status: 413, message: "MCP request is too large.", requestID: NSNull())
+            return
+        }
+        if let parsed = HTTPRequest.parse(buffer) {
+            let remainder = buffer.count > parsed.bytesConsumed ? Data(buffer[parsed.bytesConsumed..<buffer.count]) : Data()
+            handle(parsed.request, connection: connection, bufferedData: remainder)
+            return
+        }
+        if isComplete || didError {
+            sendError(connection, status: 400, message: "Malformed HTTP request.", requestID: NSNull())
+            return
+        }
+        receive(connection, buffer: buffer)
+    }
+
+    private func continueReceiving(on connection: NWConnection, bufferedData: Data = Data()) {
+        if bufferedData.isEmpty {
+            receive(connection, buffer: Data())
+        } else {
+            processIncomingData(connection, buffer: bufferedData)
+        }
+    }
+
+    private func handle(_ request: HTTPRequest, connection: NWConnection, bufferedData: Data = Data()) {
         let session = request.headers["mcp-session-id"].map { "present (\($0.prefix(8))…)" } ?? "none"
         let accept = request.headers["accept"] ?? "none"
         let protocolVersion = request.headers["mcp-protocol-version"] ?? request.requestedProtocolVersion ?? "none"
-        logHandler("Gateway request: \(request.method) \(request.target); session=\(session); accept=\(accept); protocol=\(protocolVersion); compatibility=\(profile.remoteClientCompatibilityEnabled).\n")
+        let rpcMethod = request.jsonRPCMethod ?? "none"
+        let cancelTarget = request.cancellationTargetDescription ?? "none"
+        let requestIDDescription = request.requestIDDescription
+        logHandler("Gateway request: \(request.method) \(request.target); id=\(requestIDDescription); rpc=\(rpcMethod); cancel=\(cancelTarget); session=\(session); accept=\(accept); protocol=\(protocolVersion); compatibility=\(profile.remoteClientCompatibilityEnabled).\n")
         guard GatewayRequestMethodPolicy.accepts(
             request.method,
             remoteClientCompatibilityEnabled: profile.remoteClientCompatibilityEnabled
         ) else {
-            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID)
+            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
             return
         }
         if let origin = request.headers["origin"], !profile.allowedOrigins.contains(origin) {
-            sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID)
+            sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
             return
         }
         if request.method == "HEAD" {
             logHandler("Compatibility probe accepted with HTTP 200.\n")
-            sendHeadOK(connection)
+            sendHeadOK(connection, bufferedData: bufferedData)
             return
+        }
+        if profile.remoteClientCompatibilityEnabled,
+           let sessionID = request.headers["mcp-session-id"],
+           let method = request.jsonRPCMethod {
+            let compatibilityResult: [String: Any]?
+            switch method {
+            case "resources/templates/list":
+                compatibilityResult = ["resourceTemplates": []]
+            case "resources/list":
+                compatibilityResult = ["resources": []]
+            case "prompts/list":
+                compatibilityResult = ["prompts": []]
+            default:
+                compatibilityResult = nil
+            }
+            if let result = compatibilityResult {
+                logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
+                logHandler("Compatibility fallback response: method=\(method), contentType=text/event-stream, session=\(sessionID.prefix(8))….\n")
+                sendCompatibilityResult(
+                    connection,
+                    requestID: request.jsonRPCID,
+                    sessionID: sessionID,
+                    protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                    result: result
+                )
+                return
+            }
         }
         if request.method == "GET" {
             if let _ = request.headers["mcp-session-id"] {
                 guard arbiter.active != nil else {
-                    sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID)
+                    sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                     return
                 }
                 publishState()
-                proxy(request, connection: connection)
+                if profile.remoteClientCompatibilityEnabled {
+                    logHandler("Compatibility session stream attached locally.\n")
+                    sendCompatibilitySessionStream(connection)
+                } else {
+                    proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
+                }
                 return
             }
 
             guard profile.remoteClientCompatibilityEnabled else {
-                sendError(connection, status: 405, message: "This MCP endpoint does not offer a pre-session SSE stream. Initialize with POST first, then retry GET with Mcp-Session-Id.", requestID: request.jsonRPCID)
+                sendError(connection, status: 405, message: "This MCP endpoint does not offer a pre-session SSE stream. Initialize with POST first, then retry GET with Mcp-Session-Id.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                 return
             }
 
             guard let credential = authorizedCredential(for: request) else {
-                sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID)
+                sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                 return
             }
 
@@ -302,7 +351,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         switch arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name) {
         case .allowed:
             publishState()
-            proxy(request, connection: connection)
+            proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
         case .waiting:
             publishState()
             logHandler("\(credential.name) requested access while another AI holds the lease.\n")
@@ -311,7 +360,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 status: 409,
                 message: "Connection in use. Please wait for user confirmation, then retry.",
                 requestID: request.jsonRPCID,
-                data: ["retryable": true, "state": "waiting_for_user_confirmation"]
+                data: ["retryable": true, "state": "waiting_for_user_confirmation"],
+                keepConnectionOpen: true,
+                bufferedData: bufferedData
             )
         }
     }
@@ -322,6 +373,20 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         let token = String(authorization.dropFirst(7)).trimmingCharacters(in: .whitespaces)
         return profile.clientCredentials.first(where: { $0.token == token })
+    }
+
+    private func sendCompatibilitySessionStream(_ connection: NWConnection) {
+        let eventID = "\(UUID().uuidString)_\(Int(Date().timeIntervalSince1970 * 1000))_0000_gek"
+        let body = Data(("id: \(eventID)\ndata: \n\n").utf8)
+        let headers = "HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
+        var payload = Data(headers.utf8)
+        payload.append(HTTPChunkedBodyEncoder.encode(body))
+        connection.send(content: payload, completion: .contentProcessed { error in
+            if let error {
+                self.logHandler("Compatibility session stream failed: \(error.localizedDescription)\n")
+                connection.cancel()
+            }
+        })
     }
 
     private func sendCompatibilityHandshake(_ request: HTTPRequest, connection: NWConnection) {
@@ -353,7 +418,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         })
     }
 
-    private func proxy(_ request: HTTPRequest, connection: NWConnection) {
+    private func proxy(_ request: HTTPRequest, connection: NWConnection, bufferedDataAfterResponse: Data = Data()) {
         guard let port = NWEndpoint.Port(rawValue: UInt16(profile.localPort)) else {
             sendError(connection, status: 502, message: "The upstream MCP port is invalid.", requestID: request.jsonRPCID)
             return
@@ -382,7 +447,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         self.sendAccepted(connection)
                         self.drainUpstreamResponse(upstream)
                     } else {
-                        self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge)
+                        self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge, bufferedDataAfterResponse: bufferedDataAfterResponse)
                     }
                 })
             case .failed(let error):
@@ -433,7 +498,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
     private func pipeUpstreamResponse(
         _ upstream: NWConnection,
         to client: NWConnection,
-        initializeBridge: GatewayInitializeResponseBridge? = nil
+        initializeBridge: GatewayInitializeResponseBridge? = nil,
+        bufferedDataAfterResponse: Data = Data(),
+        upstreamResponseBuffer: Data = Data()
     ) {
         upstream.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
             guard let self else {
@@ -442,6 +509,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 return
             }
 
+            var combinedBuffer = upstreamResponseBuffer
+            if let data, !data.isEmpty { combinedBuffer.append(data) }
+
             var outgoing: Data?
             var responseComplete = false
             if let data, !data.isEmpty {
@@ -449,15 +519,23 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     let result = initializeBridge.consume(data, isFinal: isComplete || error != nil)
                     outgoing = result?.data
                     responseComplete = result?.responseComplete == true
-                    if let sessionID = result?.sessionID, let upstreamVersion = result?.upstreamVersion {
-                        self.bridgedProtocolVersions[sessionID] = upstreamVersion
-                        self.logHandler("Protocol bridge active: client=\(initializeBridge.requestedVersion), upstream=\(upstreamVersion), session=\(sessionID.prefix(8))….\n")
+                    if let sessionID = result?.sessionID {
+                        if let upstreamVersion = result?.upstreamVersion {
+                            self.bridgedProtocolVersions[sessionID] = upstreamVersion
+                            self.logHandler("Protocol bridge active: client=\(initializeBridge.requestedVersion), upstream=\(upstreamVersion), session=\(sessionID.prefix(8))….\n")
+                        }
+                        if let capabilities = result?.upstreamCapabilities {
+                            self.upstreamCapabilities[sessionID] = capabilities
+                        }
                     }
                 } else {
                     outgoing = data
+                    responseComplete = HTTPResponseFraming.isComplete(combinedBuffer)
                 }
             } else if let initializeBridge, isComplete || error != nil {
-                outgoing = initializeBridge.finish()?.data
+                let result = initializeBridge.finish()
+                outgoing = result?.data
+                responseComplete = result?.responseComplete == true
             }
 
             let closeAfterResponse = responseComplete
@@ -468,30 +546,77 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         client.cancel()
                     } else if closeAfterResponse || isComplete || error != nil {
                         upstream.cancel()
-                        client.cancel()
+                        self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
                     } else {
-                        self.pipeUpstreamResponse(upstream, to: client, initializeBridge: initializeBridge)
+                        self.pipeUpstreamResponse(
+                            upstream,
+                            to: client,
+                            initializeBridge: initializeBridge,
+                            bufferedDataAfterResponse: bufferedDataAfterResponse,
+                            upstreamResponseBuffer: combinedBuffer
+                        )
                     }
                 })
             } else if isComplete || error != nil {
                 upstream.cancel()
-                client.cancel()
+                self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
             } else {
-                self.pipeUpstreamResponse(upstream, to: client, initializeBridge: initializeBridge)
+                self.pipeUpstreamResponse(
+                    upstream,
+                    to: client,
+                    initializeBridge: initializeBridge,
+                    bufferedDataAfterResponse: bufferedDataAfterResponse,
+                    upstreamResponseBuffer: combinedBuffer
+                )
             }
         }
     }
 
-    private func sendHeadOK(_ connection: NWConnection) {
+    private func sendHeadOK(_ connection: NWConnection, bufferedData: Data = Data()) {
         let response = Data(
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE\r\nCache-Control: no-store\r\n\r\n".utf8
         )
-        send(connection, data: response)
+        send(connection, data: response, keepConnectionOpen: true, bufferedData: bufferedData)
     }
 
-    private func sendAccepted(_ connection: NWConnection) {
-        let response = Data("HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
-        send(connection, data: response)
+    private func sendCompatibilityResult(
+        _ connection: NWConnection,
+        requestID: Any,
+        sessionID: String?,
+        protocolVersion: String?,
+        result: [String: Any],
+        keepConnectionOpen: Bool = false,
+        bufferedData: Data = Data()
+    ) {
+        let object: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "result": result]
+        let jsonData = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
+        let jsonText = String(decoding: jsonData, as: UTF8.self)
+        let baseMillis = Int(Date().timeIntervalSince1970 * 1000)
+        let preludeID = "\(UUID().uuidString)_\(baseMillis)_0000_evt"
+        let messageID = "\(UUID().uuidString)_\(baseMillis)_0000_msg"
+        let sseText = "id: \(preludeID)\ndata: \n\nevent: message\nid: \(messageID)\ndata: \(jsonText)\n\n"
+        var encodedBody = HTTPChunkedBodyEncoder.encode(Data(sseText.utf8))
+        encodedBody.append(Data("0\r\n\r\n".utf8))
+
+        var headerLines = [
+            "HTTP/1.1 200 OK",
+            "Cache-Control: no-cache",
+            "Content-Type: text/event-stream",
+            "Transfer-Encoding: chunked"
+        ]
+        if let sessionID, !sessionID.isEmpty {
+            headerLines.append("Mcp-Session-Id: \(sessionID)")
+        }
+
+        let headers = headerLines.joined(separator: "\r\n") + "\r\n\r\n"
+        var response = Data(headers.utf8)
+        response.append(encodedBody)
+        send(connection, data: response, keepConnectionOpen: keepConnectionOpen, bufferedData: bufferedData)
+    }
+
+    private func sendAccepted(_ connection: NWConnection, keepConnectionOpen: Bool = false, bufferedData: Data = Data()) {
+        let response = Data("HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n".utf8)
+        send(connection, data: response, keepConnectionOpen: keepConnectionOpen, bufferedData: bufferedData)
     }
 
     private func drainUpstreamResponse(_ upstream: NWConnection) {
@@ -506,20 +631,29 @@ private final class ExclusiveGateway: @unchecked Sendable {
         status: Int,
         message: String,
         requestID: Any,
-        data: [String: Any]? = nil
+        data: [String: Any]? = nil,
+        keepConnectionOpen: Bool = false,
+        bufferedData: Data = Data()
     ) {
         var errorObject: [String: Any] = ["code": -32001, "message": message]
         if let data { errorObject["data"] = data }
         let object: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "error": errorObject]
         let body = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
-        let headers = "HTTP/1.1 \(status) \(HTTPStatus.reason(status))\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+        let headers = "HTTP/1.1 \(status) \(HTTPStatus.reason(status))\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\n\r\n"
         var response = Data(headers.utf8)
         response.append(body)
-        send(connection, data: response)
+        send(connection, data: response, keepConnectionOpen: keepConnectionOpen, bufferedData: bufferedData)
     }
 
-    private func send(_ connection: NWConnection, data: Data) {
-        connection.send(content: data, completion: .contentProcessed { _ in connection.cancel() })
+    private func send(_ connection: NWConnection, data: Data, keepConnectionOpen: Bool = false, bufferedData: Data = Data()) {
+        connection.send(content: data, completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            if keepConnectionOpen {
+                self.continueReceiving(on: connection, bufferedData: bufferedData)
+            } else {
+                connection.cancel()
+            }
+        })
     }
 
     private func publishState() {
@@ -584,6 +718,11 @@ enum GatewayRouteMapper {
     }
 }
 
+private struct HTTPRequestParseResult {
+    let request: HTTPRequest
+    let bytesConsumed: Int
+}
+
 private struct HTTPRequest {
     let method: String
     let target: String
@@ -593,6 +732,12 @@ private struct HTTPRequest {
     var jsonRPCID: Any {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return NSNull() }
         return object["id"] ?? NSNull()
+    }
+
+    var requestIDDescription: String {
+        let requestID = jsonRPCID
+        if requestID is NSNull { return "none" }
+        return String(describing: requestID)
     }
 
     var requestedProtocolVersion: String? {
@@ -607,13 +752,23 @@ private struct HTTPRequest {
         return object["method"] as? String
     }
 
+    var cancellationTargetDescription: String? {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              object["method"] as? String == "notifications/cancelled",
+              let params = object["params"] as? [String: Any] else { return nil }
+        if let requestID = params["requestId"] {
+            return String(describing: requestID)
+        }
+        return "unknown"
+    }
+
     var isJSONRPCNotification: Bool {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               object["method"] is String else { return false }
         return object["id"] == nil
     }
 
-    static func parse(_ data: Data) -> HTTPRequest? {
+    static func parse(_ data: Data) -> HTTPRequestParseResult? {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerRange = data.range(of: separator), let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else { return nil }
         let lines = headerText.components(separatedBy: "\r\n")
@@ -630,13 +785,43 @@ private struct HTTPRequest {
         let bodyStart = headerRange.upperBound
         if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
             let encodedBody = data.subdata(in: bodyStart..<data.endIndex)
-            guard let body = HTTPChunkedBodyDecoder.decode(encodedBody) else { return nil }
-            return HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
+            guard let decoded = HTTPChunkedBodyDecoder.decodeWithConsumed(encodedBody) else { return nil }
+            let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: decoded.body)
+            return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + decoded.bytesConsumed)
         }
         let length = Int(headers["content-length"] ?? "0") ?? 0
         guard data.count >= bodyStart + length else { return nil }
         let body = data.subdata(in: bodyStart..<(bodyStart + length))
-        return HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
+        let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
+        return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + length)
+    }
+}
+
+
+private enum HTTPResponseFraming {
+    static func isComplete(_ data: Data) -> Bool {
+        let separator = Data("\r\n\r\n".utf8)
+        guard let headerRange = data.range(of: separator), let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else {
+            return false
+        }
+        let bodyStart = headerRange.upperBound
+        let headers = headerText.components(separatedBy: "\r\n")
+        var transferEncoding: String?
+        var contentLength: Int?
+        for line in headers.dropFirst() {
+            guard let split = line.firstIndex(of: ":") else { continue }
+            let name = line[..<split].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = line[line.index(after: split)...].trimmingCharacters(in: .whitespaces)
+            if name == "transfer-encoding" { transferEncoding = value.lowercased() }
+            if name == "content-length" { contentLength = Int(value) }
+        }
+        if transferEncoding?.contains("chunked") == true {
+            let encodedBody = data.subdata(in: bodyStart..<data.endIndex)
+            guard let decoded = HTTPChunkedBodyDecoder.decodeWithConsumed(encodedBody) else { return false }
+            return encodedBody.count >= decoded.bytesConsumed
+        }
+        if let contentLength { return data.count >= bodyStart + contentLength }
+        return false
     }
 }
 
