@@ -20,7 +20,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var publicPort = 443; var mountPath = "/"; var tailscalePath = TailscaleRouteService.defaultCLIPath
     var startupDelaySeconds = 1.0; var autoStart = false; var exclusiveGatewayEnabled = false
     var remoteClientCompatibilityEnabled = false
-    var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var allowedOrigins: [String] = []
+    var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var publicRequestTimeoutSeconds = 300; var allowedOrigins: [String] = []
     var clientCredentials: [GatewayClientCredential] = []
 
     var normalizedMountPath: String {
@@ -71,6 +71,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
             if !(1024...65535).contains(gatewayPort) { errors.append("Gateway port must be between 1024 and 65535.") }
             if gatewayPort == localPort { errors.append("Gateway and upstream MCP ports must be different.") }
             if !(30...86_400).contains(leaseTimeoutSeconds) { errors.append("Exclusive lease timeout must be between 30 seconds and 24 hours.") }
+            if !(30...3_600).contains(publicRequestTimeoutSeconds) { errors.append("Public request timeout must be between 30 seconds and 60 minutes.") }
             if clientCredentials.isEmpty { errors.append("Add at least one AI access key before enabling exclusive access.") }
         }
         return errors
@@ -79,7 +80,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, description, executablePath, arguments, workingDirectory, environment, localPort, exposureMode
         case tailscaleRouteEnabled, publicPort, mountPath, tailscalePath, startupDelaySeconds, autoStart
-        case exclusiveGatewayEnabled, remoteClientCompatibilityEnabled, gatewayPort, leaseTimeoutSeconds, allowedOrigins, clientCredentials
+        case exclusiveGatewayEnabled, remoteClientCompatibilityEnabled, gatewayPort, leaseTimeoutSeconds, publicRequestTimeoutSeconds, allowedOrigins, clientCredentials
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -96,7 +97,9 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
         remoteClientCompatibilityEnabled = try v.decodeIfPresent(Bool.self, forKey: .remoteClientCompatibilityEnabled) ?? false
         gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000
-        leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900; allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
+        leaseTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .leaseTimeoutSeconds) ?? 900
+        publicRequestTimeoutSeconds = try v.decodeIfPresent(Int.self, forKey: .publicRequestTimeoutSeconds) ?? 300
+        allowedOrigins = try v.decodeIfPresent([String].self, forKey: .allowedOrigins) ?? []
         clientCredentials = try v.decodeIfPresent([GatewayClientCredential].self, forKey: .clientCredentials) ?? []
     }
 }

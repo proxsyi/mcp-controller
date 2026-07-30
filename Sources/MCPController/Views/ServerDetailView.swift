@@ -22,8 +22,11 @@ struct ServerDetailView: View {
     @State private var draft: ServerProfile
     @State private var argumentsText: String
     @State private var environmentText: String
+    @State private var savedProfile: ServerProfile
     @State private var selection: DetailSection = .setup
     @State private var pulse = false
+    @State private var showingRestartConfirmation = false
+    @State private var isSynchronizingDraft = false
 
     private let settingColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -31,6 +34,7 @@ struct ServerDetailView: View {
         _draft = State(initialValue: profile)
         _argumentsText = State(initialValue: profile.arguments.joined(separator: "\n"))
         _environmentText = State(initialValue: profile.environment.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: "\n"))
+        _savedProfile = State(initialValue: profile)
     }
 
     private var phase: RuntimePhase { model.phase(for: draft.id) }
@@ -39,6 +43,9 @@ struct ServerDetailView: View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.45)
+            if hasPendingRunningChanges {
+                pendingChangesBanner
+            }
             ScrollView {
                 VStack(spacing: 18) {
                     Picker("Server tabs", selection: $selection) {
@@ -65,8 +72,32 @@ struct ServerDetailView: View {
         .onChange(of: draft) { _, _ in saveDraft() }
         .onChange(of: argumentsText) { _, _ in saveDraft() }
         .onChange(of: environmentText) { _, _ in saveDraft() }
-        .onChange(of: phase) { _, value in updatePulse(for: value) }
+        .onChange(of: phase) { _, value in handlePhaseChange(value) }
         .onAppear { updatePulse(for: phase) }
+        .alert("Restart server to apply changes?", isPresented: $showingRestartConfirmation) {
+            Button("Cancel Changes", role: .cancel) { revertDraft() }
+            Button("Restart & Apply", role: .destructive) { applyDraftAndRestart() }
+        } message: {
+            Text("\(savedProfile.name) is running. MCP Controller will stop it, save these changes, and start it again.")
+        }
+    }
+
+    private var hasPendingRunningChanges: Bool {
+        phase.isActive && draft != savedProfile
+    }
+
+    private var pendingChangesBanner: some View {
+        HStack(spacing: 12) {
+            Label("Unsaved changes require a restart", systemImage: "arrow.clockwise.circle")
+                .font(.subheadline.weight(.medium))
+            Spacer()
+            Button("Discard") { revertDraft() }
+            Button("Apply & Restart") { showingRestartConfirmation = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.1))
     }
 
     private var header: some View {
@@ -203,7 +234,6 @@ struct ServerDetailView: View {
                             TextField("4101", text: integerBinding(\.localPort))
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 88)
-                                .disabled(phase.isActive)
                         }
                     }
 
@@ -293,6 +323,14 @@ struct ServerDetailView: View {
         }
     }
 
+    private func handlePhaseChange(_ phase: RuntimePhase) {
+        updatePulse(for: phase)
+        if !phase.isActive, draft != savedProfile {
+            model.update(draft)
+            savedProfile = draft
+        }
+    }
+
     private func updatePulse(for phase: RuntimePhase) {
         pulse = false
         guard phase.isActive, !reduceMotion else { return }
@@ -300,12 +338,38 @@ struct ServerDetailView: View {
     }
 
     private func saveDraft() {
+        guard !isSynchronizingDraft else { return }
         draft.arguments = argumentsText.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         draft.environment = environmentText.split(separator: "\n").reduce(into: [:]) { values, line in
             guard let split = line.firstIndex(of: "=") else { return }
             values[String(line[..<split])] = String(line[line.index(after: split)...])
         }
-        model.update(draft)
+        guard draft != savedProfile else { return }
+        if !phase.isActive {
+            model.update(draft)
+            savedProfile = draft
+        }
+    }
+
+    private func applyDraftAndRestart() {
+        let original = savedProfile
+        let updated = draft
+        showingRestartConfirmation = false
+        model.update(updated)
+        savedProfile = updated
+        model.stop(original) { [weak model] in model?.start(updated) }
+    }
+
+    private func revertDraft() {
+        showingRestartConfirmation = false
+        isSynchronizingDraft = true
+        draft = savedProfile
+        argumentsText = savedProfile.arguments.joined(separator: "\n")
+        environmentText = savedProfile.environment.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        Task { @MainActor in
+            await Task.yield()
+            isSynchronizingDraft = false
+        }
     }
 
     private func settingTile<Content: View>(_ title: String, detail: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {

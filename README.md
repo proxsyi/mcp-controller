@@ -2,7 +2,7 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.7.8` (build 25).
+Current release: `v0.7.9` (build 26).
 
 ## What it does
 
@@ -93,6 +93,7 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. B
 ~/.local/bin/mcpctl new --name "Server Name" --executable /absolute/path/to/executable --working-directory /absolute/path --description "What it does" --local-port 4200
 ~/.local/bin/mcpctl export "Server Name" --secrets > /tmp/server.json
 ~/.local/bin/mcpctl save --file /tmp/server.json
+~/.local/bin/mcpctl save --file /tmp/server.json --restart  # Required when changing a running profile
 ~/.local/bin/mcpctl import --file /tmp/server.json
 ~/.local/bin/mcpctl duplicate "Server Name"
 ~/.local/bin/mcpctl remove "Server Name"
@@ -140,7 +141,7 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. B
 ~/.local/bin/mcpctl quit
 ```
 
-`export --secrets` returns the full saved profile JSON, including environment values and access keys. Edit that file, then apply it with `save --file ...` to change any field that the GUI can edit.
+`export --secrets` returns the full saved profile JSON, including environment values and access keys. Edit that file, then apply it with `save --file ...` to change any field that the GUI can edit. Changes to a running profile remain pending until you explicitly confirm **Apply & Restart**. Terminal saves and key changes reject active-profile edits unless `--restart` is passed.
 
 ## Exclusive AI access
 
@@ -182,6 +183,8 @@ Validate a new profile locally and publicly before adding its custom MCP URL to 
 Process inspection, readiness polling, gateway startup, route changes, Tailscale DNS lookup, and process termination run away from the main actor. Tailscale DNS is cached, bulk transitions are sequenced by actual runtime phase, and managed shutdown still sends immediate termination signals before app exit. On the fifteen-profile validation machine, terminal control became ready in about 0.54 seconds after launch; cached status calls were typically 0.15–0.26 seconds. Start Everything returned in 0.278 seconds and Stop Everything in 0.172 seconds while the queues continued without freezing the menu bar.
 
 The circular arrow beside a server and Release All are lease-release controls. They disconnect the current AI lease without stopping the MCP server, allowing the same or another authorized client to reconnect.
+
+Protected public routes have a separate request deadline from lease expiry. New and legacy profiles default to a five-minute public request timeout, configurable from 1 to 60 minutes. Requests that have not begun responding receive HTTP 504 at the deadline; already-streaming responses are closed cleanly instead of receiving a second HTTP response.
 
 ## Security
 

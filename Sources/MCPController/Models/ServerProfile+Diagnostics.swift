@@ -31,6 +31,7 @@ extension ServerProfile {
         Gateway enabled: \(exclusiveGatewayEnabled)
         Gateway endpoint: 127.0.0.1:\(gatewayPort)
         Lease timeout: \(leaseTimeoutSeconds)s
+        Public request timeout: \(publicRequestTimeoutSeconds)s
         Allowed origins: \(origins)
         Access keys: \(keyNames) (tokens redacted)
         Remote client compatibility: \(remoteClientCompatibilityEnabled)

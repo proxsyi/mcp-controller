@@ -24,8 +24,7 @@ struct GatewayAccessView: View {
                     Spacer()
                     Toggle("Access control", isOn: $profile.exclusiveGatewayEnabled)
                         .labelsHidden()
-                        .disabled(isRunning)
-                }
+                                        }
 
                 if profile.exclusiveGatewayEnabled {
                     leaseSummary
@@ -45,24 +44,25 @@ struct GatewayAccessView: View {
                             TextField("39000", text: gatewayPortBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 120)
-                                .disabled(isRunning)
-                        }
+                                                        }
                         GridRow {
                             Text("Lease timeout").foregroundStyle(.secondary)
                             Stepper("\(profile.leaseTimeoutSeconds / 60) min", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
-                                .disabled(isRunning)
-                        }
+                                                        }
+                        GridRow {
+                            Text("Public request timeout").foregroundStyle(.secondary)
+                            Stepper("\(profile.publicRequestTimeoutSeconds / 60) min", value: $profile.publicRequestTimeoutSeconds, in: 60...3_600, step: 60)
+                                                        }
                         GridRow {
                             Text("Allowed origins").foregroundStyle(.secondary)
                             TextField("Optional, comma separated", text: $originText)
                                 .textFieldStyle(.roundedBorder)
-                                .disabled(isRunning)
-                        }
+                                                        }
                     }
                 }
 
                 if isRunning {
-                    Text("Stop the server before changing gateway settings. Access keys can still be copied while it is running.")
+                    Text("Changes stay pending until you confirm Apply & Restart. Access keys can still be copied while it is running.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -71,6 +71,10 @@ struct GatewayAccessView: View {
         .onAppear { originText = profile.allowedOrigins.joined(separator: ", ") }
         .onChange(of: originText) { _, value in
             profile.allowedOrigins = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        .onChange(of: profile.allowedOrigins) { _, value in
+            let normalized = value.joined(separator: ", ")
+            if originText != normalized { originText = normalized }
         }
     }
 
@@ -115,8 +119,7 @@ struct GatewayAccessView: View {
                     TextField("Key name", text: $credential.name)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 160)
-                        .disabled(isRunning)
-                    Text("••••••••\(credential.token.suffix(6))")
+                                            Text("••••••••\(credential.token.suffix(6))")
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -129,8 +132,7 @@ struct GatewayAccessView: View {
                         profile.clientCredentials.removeAll { $0.id == credential.id }
                     }
                     .controlSize(.small)
-                    .disabled(isRunning)
-                }
+                                    }
             }
 
             HStack {
@@ -139,7 +141,6 @@ struct GatewayAccessView: View {
                     profile.clientCredentials.append(.generate(name: "AI \(number)"))
                 }
                 .controlSize(.small)
-                .disabled(isRunning)
 
                 if profile.clientCredentials.isEmpty {
                     Text("Add at least one key before starting a protected route.")
