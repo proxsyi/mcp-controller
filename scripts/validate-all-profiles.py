@@ -9,7 +9,7 @@ SAFE_CALLS = {
     "MacOS AppleScript": [("applescript.ping", {})],
     "Chrome DevTools": [("list_pages", {})],
     "ReactBits": [("search_components", {"query": "button"})],
-    "Context7": [("resolve-library-id", {"libraryName": "react"}), ("resolve_library_id", {"libraryName": "react"})],
+    "Context7": [("resolve-library-id", {"libraryName": "React", "query": "React hooks documentation"}), ("resolve_library_id", {"libraryName": "react"})],
     "Google Stitch": [("list_projects", {})],
     "Supabase": [("list_projects", {})],
     "Cloudflare": [("zones_list", {})],
