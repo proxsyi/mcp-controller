@@ -1,6 +1,6 @@
 import Foundation
 
-enum ExposureMode: String, Codable, CaseIterable, Identifiable {
+enum ExposureMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case disabled, tailnet, funnel
     var id: String { rawValue }
     var title: String { switch self { case .disabled: "Local only"; case .tailnet: "Tailnet"; case .funnel: "Public Funnel" } }
@@ -13,7 +13,7 @@ struct GatewayClientCredential: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-struct ServerProfile: Identifiable, Codable, Hashable {
+struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var id = UUID(); var name = "New MCP Server"; var description = ""; var executablePath = ""
     var arguments: [String] = []; var workingDirectory = ""; var environment: [String: String] = [:]
     var localPort = 3000; var exposureMode: ExposureMode = .disabled; var tailscaleRouteEnabled = false
@@ -101,7 +101,7 @@ struct ServerProfile: Identifiable, Codable, Hashable {
     }
 }
 
-enum RuntimePhase: Equatable {
+enum RuntimePhase: Equatable, Sendable {
     case stopped, starting, running, stopping, failed(String)
     var title: String { switch self { case .stopped: "Stopped"; case .starting: "Starting"; case .running: "Running"; case .stopping: "Stopping"; case .failed: "Failed" } }
     var isActive: Bool { switch self { case .starting, .running, .stopping: true; case .stopped, .failed: false } }

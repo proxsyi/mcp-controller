@@ -1,12 +1,18 @@
 import Foundation
 
-struct CommandResult {
+struct CommandResult: Sendable {
     let output: String
     let error: String
     let exitCode: Int32
 }
 
 enum CommandRunner {
+    static func runAsync(executable: String, arguments: [String]) async throws -> CommandResult {
+        try await Task.detached(priority: .utility) {
+            try run(executable: executable, arguments: arguments)
+        }.value
+    }
+
     static func run(executable: String, arguments: [String]) throws -> CommandResult {
         let process = Process()
         let outputPipe = Pipe()

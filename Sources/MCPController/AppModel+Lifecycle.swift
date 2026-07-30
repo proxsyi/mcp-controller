@@ -2,7 +2,7 @@ import Foundation
 
 extension AppModel {
     func shutdownForApplicationQuit() {
-        stopAll()
+        stopImmediatelyForApplicationQuit()
         stopTailscaleFunnel()
     }
 }

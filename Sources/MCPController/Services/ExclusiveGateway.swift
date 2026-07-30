@@ -539,6 +539,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
             }
 
             let closeAfterResponse = responseComplete
+            let responseBuffer = combinedBuffer
             if let outgoing, !outgoing.isEmpty {
                 client.send(content: outgoing, completion: .contentProcessed { sendError in
                     if sendError != nil {
@@ -553,7 +554,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                             to: client,
                             initializeBridge: initializeBridge,
                             bufferedDataAfterResponse: bufferedDataAfterResponse,
-                            upstreamResponseBuffer: combinedBuffer
+                            upstreamResponseBuffer: responseBuffer
                         )
                     }
                 })

@@ -29,4 +29,17 @@ final class ExclusiveLeaseArbiterTests: XCTestCase {
         )
         XCTAssertEqual(arbiter.active?.clientID, "cursor")
     }
+    func testReleaseClearsActiveLeaseWithoutDroppingWaitingClients() {
+        var arbiter = ExclusiveLeaseArbiter(timeout: 900)
+        _ = arbiter.authorize(clientID: "notion", clientName: "Notion")
+        _ = arbiter.authorize(clientID: "cursor", clientName: "Cursor")
+
+        arbiter.release()
+
+        XCTAssertNil(arbiter.active)
+        XCTAssertEqual(arbiter.pending.map(\.clientID), ["cursor"])
+        XCTAssertEqual(arbiter.authorize(clientID: "cursor", clientName: "Cursor"), .allowed)
+        XCTAssertEqual(arbiter.active?.clientID, "cursor")
+    }
+
 }

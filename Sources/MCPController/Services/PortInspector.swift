@@ -6,6 +6,14 @@ struct ListeningProcess: Equatable, Sendable {
 }
 
 enum PortInspector {
+    static func listenerAsync(on port: Int) async -> ListeningProcess? {
+        await Task.detached(priority: .utility) { listener(on: port) }.value
+    }
+
+    static func terminateAsync(_ listener: ListeningProcess) async throws {
+        try await Task.detached(priority: .utility) { try terminate(listener) }.value
+    }
+
     static func listener(on port: Int) -> ListeningProcess? {
         guard let result = try? CommandRunner.run(
             executable: "/usr/sbin/lsof",
