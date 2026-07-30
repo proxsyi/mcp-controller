@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.9 — 2026-07-30
+
+- Added a separate five-minute public MCP request timeout, configurable per protected profile from 1 to 60 minutes.
+- Added explicit Apply & Restart confirmation for edits to running profiles.
+- Added `mcpctl --restart` support for terminal saves and key changes on active profiles.
+
+- Kept running-profile edits as local drafts until restart is confirmed, preventing saved configuration from diverging from the active process.
+- Return HTTP 504 when a public request times out before response data starts, and close already-streaming responses cleanly at the deadline.
+
 ## 0.7.8 — 2026-07-30
 
 - Moved process inspection, readiness polling, gateway startup, Tailscale routing, and termination work off the main actor.
@@ -23,15 +32,6 @@
 All notable changes to MCP Controller are documented here.
 
 ## Unreleased
-
-### Added
-- Added a separate five-minute public MCP request timeout, configurable per protected profile from 1 to 60 minutes.
-- Added explicit Apply & Restart confirmation for edits to running profiles.
-- Added `mcpctl --restart` support for terminal saves and key changes on active profiles.
-
-### Fixed
-- Kept running-profile edits as local drafts until restart is confirmed, preventing saved configuration from diverging from the active process.
-- Return HTTP 504 when a public request times out before response data starts, and close already-streaming responses cleanly at the deadline.
 
 ## v0.7.6
 
