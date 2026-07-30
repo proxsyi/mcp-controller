@@ -2,17 +2,19 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.7.6` (build 23).
+Current release: `v0.7.7` (build 24).
 
 ## What it does
 
 - Stores reusable profiles for independently installed local servers and hosted MCP bridges.
 - Starts, stops, restarts, adopts, and monitors each managed process independently.
+- Queues bulk start and stop actions so each server finishes its transition before the next begins.
 - Supports local-only, tailnet-only, and public Tailscale Funnel exposure.
 - Adds and removes only the path-scoped Tailscale route owned by each profile.
 - Controls the global Funnel separately while automatically starting it when a configured public profile requires it.
 - Optionally places a localhost exclusive-access gateway in front of a server.
 - Uses separate Bearer keys and one-client leases for remote AI connections.
+- Releases individual leases or every active lease from the menu bar without stopping servers.
 - Provides menu-bar controls, bounded logs, readiness checks, update checks, and terminal control through `mcpctl`.
 - Stops managed servers, gateways, routes, leases, and Funnel during the app's managed quit path.
 - Persists local configuration under `~/Library/Application Support/MCP Controller/servers.json`.
@@ -122,6 +124,7 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. B
 ~/.local/bin/mcpctl lease
 ~/.local/bin/mcpctl lease "Server Name"
 ~/.local/bin/mcpctl lease-release "Server Name"
+~/.local/bin/mcpctl lease-release-all
 ~/.local/bin/mcpctl pending
 ~/.local/bin/mcpctl pending "Server Name"
 ~/.local/bin/mcpctl approve "Server Name" --client-id CLIENT_ID

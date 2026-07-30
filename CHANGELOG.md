@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.7 — 2026-07-30
+
+- Added a Release All control beside Start Everything.
+- Added a per-server circular lease-release control beside Start/Stop.
+- Queued bulk start and stop operations so servers transition sequentially.
+- Made stop-all wait for each managed process or adopted listener to terminate before continuing.
+- Added `mcpctl lease-release-all` and updated bulk lifecycle terminal responses.
+
+
 All notable changes to MCP Controller are documented here.
 
 ## Unreleased
