@@ -39,7 +39,7 @@ extension AppModel {
             default: releaseLease(profileID: profile.id)
             }
             return .ok("\(action) accepted for \(profile.name).")
-        case "start-all": profiles.forEach(start); return .ok("Started all configured servers.")
+        case "start-all": startAll(); return .ok("Started all configured servers.")
         case "stop-all": stopAll(); return .ok("Stopped all managed servers.")
         case "logs":
             guard let profile = terminalProfile(request.target) else { return .error("Server not found.") }

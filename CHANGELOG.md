@@ -4,6 +4,15 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.5
+
+### Added
+- Added a Start Everything control to the menu bar beside Stop Everything so every configured profile can be launched in one action.
+
+### Documentation
+- Refreshed the README with the current clone path, profile workflow, bridge patterns, terminal controls, validation commands, security boundaries, and managed shutdown behavior.
+- Expanded the MCP server role guide to cover all fifteen configured profiles and the hosted OAuth bridge pattern.
+
 ## v0.7.4
 
 ### Fixed
