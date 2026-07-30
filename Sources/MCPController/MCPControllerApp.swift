@@ -17,6 +17,16 @@ struct MCPControllerApp: App {
                 .frame(minWidth: 980, minHeight: 640)
                 .onAppear {
                     appDelegate.model = model
+                    model.onShowSettings = nil
+                    model.onCheckForUpdates = {
+                        updates.checkForUpdates()
+                        return updates.statusMessage.isEmpty ? "Checking GitHub…" : updates.statusMessage
+                    }
+                    model.onInstallUpdate = {
+                        if !updates.updateAvailable { updates.checkForUpdates() }
+                        if updates.updateAvailable { updates.installAvailableUpdate() }
+                        return updates.statusMessage.isEmpty ? "Installing update…" : updates.statusMessage
+                    }
                     updates.beginAutomaticChecks()
                     if settings.oneAIOnly { model.applyGlobalOneAIPolicy(true) }
                 }

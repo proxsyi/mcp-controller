@@ -2,7 +2,7 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.7.5` (build 22).
+Current release: `v0.7.6` (build 23).
 
 ## What it does
 
@@ -76,13 +76,24 @@ npx -y mcp-proxy@6.5.4 --host 127.0.0.1 --port {port} --server stream --streamEn
 
 ## Terminal control
 
-The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces.
+The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. Between `new`, `show --secrets`, `save`, and the lifecycle/access commands below, every app action has a terminal equivalent.
 
 ```bash
 # Inventory and details
 ~/.local/bin/mcpctl list
 ~/.local/bin/mcpctl status "Server Name"
 ~/.local/bin/mcpctl show "Server Name"
+~/.local/bin/mcpctl remote-url
+~/.local/bin/mcpctl remote-url "Server Name"
+
+# Create and edit profiles
+~/.local/bin/mcpctl template > /tmp/server.json
+~/.local/bin/mcpctl new --name "Server Name" --executable /absolute/path/to/executable --working-directory /absolute/path --description "What it does" --local-port 4200
+~/.local/bin/mcpctl export "Server Name" --secrets > /tmp/server.json
+~/.local/bin/mcpctl save --file /tmp/server.json
+~/.local/bin/mcpctl import --file /tmp/server.json
+~/.local/bin/mcpctl duplicate "Server Name"
+~/.local/bin/mcpctl remove "Server Name"
 
 # Lifecycle
 ~/.local/bin/mcpctl start "Server Name"
@@ -101,18 +112,32 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces.
 ~/.local/bin/mcpctl funnel-start
 ~/.local/bin/mcpctl funnel-stop
 ~/.local/bin/mcpctl funnel-status
+~/.local/bin/mcpctl use-default-cli
 
-# Leases and profiles
+# Access keys, leases, and approvals
+~/.local/bin/mcpctl keys "Server Name"
+~/.local/bin/mcpctl key-add "Server Name" --name "Primary AI"
+~/.local/bin/mcpctl key-show "Server Name" --key "Primary AI"
+~/.local/bin/mcpctl key-remove "Server Name" --key "Primary AI"
+~/.local/bin/mcpctl lease
+~/.local/bin/mcpctl lease "Server Name"
 ~/.local/bin/mcpctl lease-release "Server Name"
-~/.local/bin/mcpctl duplicate "Server Name"
-~/.local/bin/mcpctl export "Server Name"
-~/.local/bin/mcpctl import --file /absolute/path/profile.json
-~/.local/bin/mcpctl remove "Server Name"
+~/.local/bin/mcpctl pending
+~/.local/bin/mcpctl pending "Server Name"
+~/.local/bin/mcpctl approve "Server Name" --client-id CLIENT_ID
+~/.local/bin/mcpctl deny "Server Name" --client-id CLIENT_ID
+~/.local/bin/mcpctl one-ai --enabled true
+~/.local/bin/mcpctl one-ai --enabled false
 
-# App lifecycle
+# App controls
+~/.local/bin/mcpctl check-updates
+~/.local/bin/mcpctl install-update
 ~/.local/bin/mcpctl open
+~/.local/bin/mcpctl settings
 ~/.local/bin/mcpctl quit
 ```
+
+`export --secrets` returns the full saved profile JSON, including environment values and access keys. Edit that file, then apply it with `save --file ...` to change any field that the GUI can edit.
 
 ## Exclusive AI access
 
