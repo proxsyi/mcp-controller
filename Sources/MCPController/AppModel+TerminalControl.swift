@@ -56,8 +56,9 @@ extension AppModel {
             default: releaseLease(profileID: profile.id)
             }
             return .ok("\(action) accepted for \(profile.name).")
-        case "start-all": startAll(); return .ok("Started all configured servers.")
-        case "stop-all": stopAll(); return .ok("Stopped all managed servers.")
+        case "start-all": startAll(); return .ok("Queued all configured servers to start.")
+        case "stop-all": stopAll(); return .ok("Queued all managed servers to stop.")
+        case "lease-release-all": releaseAllLeases(); return .ok("Released every active AI lease.")
         case "logs":
             guard let profile = terminalProfile(request.target) else { return .error("Server not found.") }
             return .ok(profile.name, payload: logs[profile.id] ?? "")

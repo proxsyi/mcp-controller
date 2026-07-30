@@ -105,6 +105,10 @@ struct ServerDetailView: View {
             actionCircle(symbol: "plus.square.on.square", tint: .secondary, help: "Duplicate server") {
                 model.duplicate(draft)
             }
+            actionCircle(symbol: "arrow.uturn.left.circle.fill", tint: model.lease(for: draft.id) == nil ? .secondary : .orange, help: model.lease(for: draft.id) == nil ? "No active AI lease" : "Release AI lease") {
+                model.releaseLease(profileID: draft.id)
+            }
+            .disabled(model.lease(for: draft.id) == nil)
             if phase.isActive {
                 actionCircle(symbol: "stop.fill", tint: .red, help: "Stop server") {
                     model.stop(draft)
