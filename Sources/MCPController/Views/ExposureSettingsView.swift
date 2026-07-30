@@ -112,8 +112,7 @@ struct ExposureSettingsView: View {
                     Spacer()
                     Toggle("Remote client compatibility", isOn: compatibilityBinding)
                         .labelsHidden()
-                        .disabled(phase.isActive)
-                }
+                                        }
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     GridRow { Text("Status").foregroundStyle(.secondary); statusLine }
@@ -217,7 +216,9 @@ struct ExposureSettingsView: View {
             if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
             if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
             updated.tailscalePath = TailscaleRouteService.defaultCLIPath
-            if model.tailscaleFunnelRunning {
+            if phase.isActive {
+                profile = updated
+            } else if model.tailscaleFunnelRunning {
                 if model.startTailscaleRoute(updated) { profile = updated }
             } else {
                 model.update(updated)
@@ -227,7 +228,9 @@ struct ExposureSettingsView: View {
             let current = profile
             var updated = profile
             updated.tailscaleRouteEnabled = false
-            if model.tailscaleFunnelRunning {
+            if phase.isActive {
+                profile = updated
+            } else if model.tailscaleFunnelRunning {
                 if model.stopTailscaleRoute(current) { profile = updated }
             } else {
                 model.update(updated)

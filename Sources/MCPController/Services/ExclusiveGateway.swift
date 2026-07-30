@@ -125,6 +125,21 @@ final class ExclusiveGatewayManager: @unchecked Sendable {
     }
 }
 
+private final class GatewayRequestDeadline: @unchecked Sendable {
+    private(set) var finished = false
+    private(set) var responseStarted = false
+
+    func markResponseStarted() {
+        responseStarted = true
+    }
+
+    func claim() -> Bool {
+        guard !finished else { return false }
+        finished = true
+        return true
+    }
+}
+
 private final class ExclusiveGateway: @unchecked Sendable {
     private let profile: ServerProfile
     private let queue: DispatchQueue
@@ -432,6 +447,17 @@ private final class ExclusiveGateway: @unchecked Sendable {
             responseBridge = nil
         }
         let upstream = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        let deadline = GatewayRequestDeadline()
+        queue.asyncAfter(deadline: .now() + TimeInterval(profile.publicRequestTimeoutSeconds)) { [weak self, weak upstream, weak connection] in
+            guard let self, let upstream, let connection, deadline.claim() else { return }
+            self.logHandler("Public MCP request timed out after \(self.profile.publicRequestTimeoutSeconds) seconds.\n")
+            upstream.cancel()
+            if deadline.responseStarted {
+                connection.cancel()
+            } else {
+                self.sendError(connection, status: 504, message: "The MCP request exceeded this route’s \(self.profile.publicRequestTimeoutSeconds)-second timeout.", requestID: request.jsonRPCID)
+            }
+        }
         upstream.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -440,17 +466,20 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 let payload = self.upstreamRequestData(request, target: target)
                 upstream.send(content: payload, completion: .contentProcessed { error in
                     if let error {
+                        guard deadline.claim() else { return }
                         self.sendError(connection, status: 502, message: "Upstream MCP request failed: \(error.localizedDescription)", requestID: request.jsonRPCID)
                         upstream.cancel()
                     } else if self.profile.remoteClientCompatibilityEnabled && request.isJSONRPCNotification {
+                        _ = deadline.claim()
                         self.logHandler("Compatibility acknowledgement: accepted JSON-RPC notification \(request.jsonRPCMethod ?? "unknown") for upstream delivery.\n")
                         self.sendAccepted(connection)
                         self.drainUpstreamResponse(upstream)
                     } else {
-                        self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge, bufferedDataAfterResponse: bufferedDataAfterResponse)
+                        self.pipeUpstreamResponse(upstream, to: connection, initializeBridge: responseBridge, bufferedDataAfterResponse: bufferedDataAfterResponse, deadline: deadline)
                     }
                 })
             case .failed(let error):
+                guard deadline.claim() else { return }
                 self.sendError(connection, status: 502, message: "Upstream MCP is unavailable: \(error.localizedDescription)", requestID: request.jsonRPCID)
                 upstream.cancel()
             case .cancelled:
@@ -500,14 +529,17 @@ private final class ExclusiveGateway: @unchecked Sendable {
         to client: NWConnection,
         initializeBridge: GatewayInitializeResponseBridge? = nil,
         bufferedDataAfterResponse: Data = Data(),
-        upstreamResponseBuffer: Data = Data()
+        upstreamResponseBuffer: Data = Data(),
+        deadline: GatewayRequestDeadline
     ) {
+        guard !deadline.finished else { upstream.cancel(); return }
         upstream.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
             guard let self else {
                 upstream.cancel()
                 client.cancel()
                 return
             }
+            guard !deadline.finished else { upstream.cancel(); return }
 
             var combinedBuffer = upstreamResponseBuffer
             if let data, !data.isEmpty { combinedBuffer.append(data) }
@@ -539,10 +571,16 @@ private final class ExclusiveGateway: @unchecked Sendable {
             }
 
             let closeAfterResponse = responseComplete
+            if (closeAfterResponse || isComplete || error != nil), !deadline.claim() {
+                upstream.cancel()
+                return
+            }
             let responseBuffer = combinedBuffer
             if let outgoing, !outgoing.isEmpty {
+                deadline.markResponseStarted()
                 client.send(content: outgoing, completion: .contentProcessed { sendError in
                     if sendError != nil {
+                        _ = deadline.claim()
                         upstream.cancel()
                         client.cancel()
                     } else if closeAfterResponse || isComplete || error != nil {
@@ -554,7 +592,8 @@ private final class ExclusiveGateway: @unchecked Sendable {
                             to: client,
                             initializeBridge: initializeBridge,
                             bufferedDataAfterResponse: bufferedDataAfterResponse,
-                            upstreamResponseBuffer: responseBuffer
+                            upstreamResponseBuffer: responseBuffer,
+                            deadline: deadline
                         )
                     }
                 })
@@ -567,7 +606,8 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     to: client,
                     initializeBridge: initializeBridge,
                     bufferedDataAfterResponse: bufferedDataAfterResponse,
-                    upstreamResponseBuffer: combinedBuffer
+                    upstreamResponseBuffer: combinedBuffer,
+                    deadline: deadline
                 )
             }
         }

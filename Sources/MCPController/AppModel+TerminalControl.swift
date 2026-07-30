@@ -41,8 +41,10 @@ extension AppModel {
         case "save", "import":
             guard let json = request.arguments["json"], let data = json.data(using: .utf8),
                   let profile = try? JSONDecoder().decode(ServerProfile.self, from: data) else { return .error("Pass a complete ServerProfile JSON document.") }
-            let saved = saveProfile(profile)
-            return .ok("Saved \(saved.name).")
+            if let error = applyTerminalProfileChange(profile, restartIfRunning: request.arguments["restart"] == "true") {
+                return .error(error)
+            }
+            return .ok("Saved \(profile.name).")
         case "start", "stop", "restart", "duplicate", "remove", "route-start", "route-stop", "lease-release":
             guard let profile = terminalProfile(request.target) else { return .error("Server not found.") }
             switch action {
@@ -92,13 +94,17 @@ extension AppModel {
             let provided = request.arguments["keyName"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let credential = GatewayClientCredential.generate(name: provided.isEmpty ? "AI \(profile.clientCredentials.count + 1)" : provided)
             profile.clientCredentials.append(credential)
-            saveProfile(profile)
+            if let error = applyTerminalProfileChange(profile, restartIfRunning: request.arguments["restart"] == "true") {
+                return .error(error)
+            }
             return .ok("Added \(credential.name) to \(profile.name).", payload: credential.token)
         case "key-remove":
             guard var profile = terminalProfile(request.target) else { return .error("Server not found.") }
             guard let credential = terminalCredential(request.arguments["key"], in: profile) else { return .error("Access key not found.") }
             profile.clientCredentials.removeAll { $0.id == credential.id }
-            saveProfile(profile)
+            if let error = applyTerminalProfileChange(profile, restartIfRunning: request.arguments["restart"] == "true") {
+                return .error(error)
+            }
             return .ok("Removed \(credential.name) from \(profile.name).")
         case "key-show":
             guard let profile = terminalProfile(request.target) else { return .error("Server not found.") }
@@ -130,6 +136,24 @@ extension AppModel {
         case "quit": shutdownForApplicationQuit(); NSApplication.shared.terminate(nil); return .ok("Quitting MCP Controller.")
         default: return .error("Unknown action: \(request.action)")
         }
+    }
+
+    private func applyTerminalProfileChange(_ updated: ServerProfile, restartIfRunning: Bool) -> String? {
+        guard let current = profiles.first(where: { $0.id == updated.id }) else {
+            add(updated)
+            return nil
+        }
+        guard current != updated else { return nil }
+        if phase(for: current.id).isActive {
+            guard restartIfRunning else {
+                return "\(current.name) is running. Pass --restart to stop it, apply the changes, and start it again."
+            }
+            update(updated)
+            stop(current) { [weak self] in self?.start(updated) }
+        } else {
+            update(updated)
+        }
+        return nil
     }
 
     private func terminalProfile(_ target: String?) -> ServerProfile? {
