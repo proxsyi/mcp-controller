@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var tailscaleFunnelRunning = UserDefaults.standard.bool(forKey: "tailscale.funnelRunning")
     @Published var presentedError: String?
     @Published private(set) var isProcessingBulkLifecycleAction = false
+    @Published private(set) var tailscaleDNSNames: [String: String] = [:]
 
     private let store = ProfileStore()
     private let gatewayManager = ExclusiveGatewayManager()
@@ -22,6 +23,7 @@ final class AppModel: ObservableObject {
     private var userStoppedProfiles: Set<UUID> = []
     private var bulkLifecycleTask: Task<Void, Never>?
     private var stopCompletions: [UUID: [() -> Void]] = [:]
+    private var tailscaleDNSRefreshes: Set<String> = []
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
@@ -43,6 +45,7 @@ final class AppModel: ObservableObject {
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
+            for cliPath in Set(profiles.map(\.tailscalePath)) { refreshTailscaleDNSName(for: cliPath) }
             Task { @MainActor [weak self] in await self?.bootstrapRuntime() }
         } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
         terminalControl.start { [weak self] request in
@@ -121,8 +124,22 @@ final class AppModel: ObservableObject {
 
     func remoteURL(for profile: ServerProfile) -> String? {
         guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
-        guard let dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath), !dnsName.isEmpty else { return nil }
-        return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        if let dnsName = tailscaleDNSNames[profile.tailscalePath], !dnsName.isEmpty {
+            return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        }
+        refreshTailscaleDNSName(for: profile.tailscalePath)
+        return nil
+    }
+
+    private func refreshTailscaleDNSName(for cliPath: String) {
+        guard !tailscaleDNSRefreshes.contains(cliPath) else { return }
+        tailscaleDNSRefreshes.insert(cliPath)
+        Task { @MainActor [weak self] in
+            let dnsName = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath)
+            guard let self else { return }
+            self.tailscaleDNSRefreshes.remove(cliPath)
+            if let dnsName, !dnsName.isEmpty { self.tailscaleDNSNames[cliPath] = dnsName }
+        }
     }
 
     func applyDefaultTailscaleCLIToAllProfiles() {
