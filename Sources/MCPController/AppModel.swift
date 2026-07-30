@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -11,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var tailscaleFunnelRunning = UserDefaults.standard.bool(forKey: "tailscale.funnelRunning")
     @Published var presentedError: String?
     @Published private(set) var isProcessingBulkLifecycleAction = false
+    @Published private(set) var tailscaleDNSNames: [String: String] = [:]
 
     private let store = ProfileStore()
     private let gatewayManager = ExclusiveGatewayManager()
@@ -20,6 +22,8 @@ final class AppModel: ObservableObject {
     private var outputPipes: [UUID: [Pipe]] = [:]
     private var userStoppedProfiles: Set<UUID> = []
     private var bulkLifecycleTask: Task<Void, Never>?
+    private var stopCompletions: [UUID: [() -> Void]] = [:]
+    private var tailscaleDNSRefreshes: Set<String> = []
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
@@ -41,9 +45,8 @@ final class AppModel: ObservableObject {
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
-            reconcileExistingListeners()
-            for profile in profiles where profile.autoStart && !phase(for: profile.id).isActive { start(profile) }
-            if tailscaleFunnelRunning { startTailscaleFunnel() }
+            for cliPath in Set(profiles.map(\.tailscalePath)) { refreshTailscaleDNSName(for: cliPath) }
+            Task { @MainActor [weak self] in await self?.bootstrapRuntime() }
         } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
         terminalControl.start { [weak self] request in
             await MainActor.run { self?.handleTerminalCommand(request) ?? .error("MCP Controller is unavailable.") }
@@ -121,8 +124,22 @@ final class AppModel: ObservableObject {
 
     func remoteURL(for profile: ServerProfile) -> String? {
         guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
-        guard let dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath), !dnsName.isEmpty else { return nil }
-        return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        if let dnsName = tailscaleDNSNames[profile.tailscalePath], !dnsName.isEmpty {
+            return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        }
+        refreshTailscaleDNSName(for: profile.tailscalePath)
+        return nil
+    }
+
+    private func refreshTailscaleDNSName(for cliPath: String) {
+        guard !tailscaleDNSRefreshes.contains(cliPath) else { return }
+        tailscaleDNSRefreshes.insert(cliPath)
+        Task { @MainActor [weak self] in
+            let dnsName = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath)
+            guard let self else { return }
+            self.tailscaleDNSRefreshes.remove(cliPath)
+            if let dnsName, !dnsName.isEmpty { self.tailscaleDNSNames[cliPath] = dnsName }
+        }
     }
 
     func applyDefaultTailscaleCLIToAllProfiles() {
@@ -151,18 +168,26 @@ final class AppModel: ObservableObject {
         if let conflict = profiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
             fail(profile, "\(conflict.name) is already using MCP port \(profile.localPort)."); return
         }
-        if let listener = PortInspector.listener(on: profile.localPort) {
-            if PortInspector.belongsToProfile(listener, profile: profile) { adopt(listener, for: profile) }
-            else { fail(profile, "Port \(profile.localPort) is already used by PID \(listener.pid): \(listener.command)") }
-            return
-        }
         guard FileManager.default.isExecutableFile(atPath: profile.executablePath) else {
             fail(profile, "The executable does not exist or is not executable: \(profile.executablePath)"); return
         }
 
-        userStoppedProfiles.remove(profile.id); phases[profile.id] = .starting
+        userStoppedProfiles.remove(profile.id)
+        phases[profile.id] = .starting
         appendLog(profile.id, "Starting \(profile.name)…\n")
         appendLog(profile.id, profile.startupDiagnosticSummary)
+        Task { @MainActor [weak self] in await self?.prepareAndLaunch(profile) }
+    }
+
+    private func prepareAndLaunch(_ profile: ServerProfile) async {
+        if let listener = await PortInspector.listenerAsync(on: profile.localPort) {
+            guard phase(for: profile.id) == .starting else { return }
+            if PortInspector.belongsToProfile(listener, profile: profile) { await adopt(listener, for: profile) }
+            else { fail(profile, "Port \(profile.localPort) is already used by PID \(listener.pid): \(listener.command)") }
+            return
+        }
+        guard phase(for: profile.id) == .starting else { return }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: profile.executablePath)
         process.arguments = profile.arguments.map { $0.replacingOccurrences(of: "{port}", with: String(profile.localPort)) }
@@ -186,49 +211,60 @@ final class AppModel: ObservableObject {
                     self.phases[profile.id] = process.terminationStatus == 0 ? .stopped : .failed("Exited with code \(process.terminationStatus)")
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
                 }
+                self.completeStops(for: profile.id)
             }
         }
         do {
             try process.run(); processes[profile.id] = process; outputPipes[profile.id] = [output, error]
-            Task { @MainActor [weak self] in await self?.waitForListener(profile) }
+            await waitForListener(profile)
         } catch { fail(profile, "Could not start \(profile.name): \(error.localizedDescription)") }
     }
 
     private func waitForListener(_ profile: ServerProfile) async {
         let timeout = max(15.0, profile.startupDelaySeconds); let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            guard processes[profile.id]?.isRunning == true else { return }
-            if let listener = PortInspector.listener(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) { finishStart(profile); return }
-            try? await Task.sleep(for: .milliseconds(500))
+            guard phase(for: profile.id) == .starting, processes[profile.id]?.isRunning == true else { return }
+            if let listener = await PortInspector.listenerAsync(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) {
+                await finishStart(profile); return
+            }
+            try? await Task.sleep(for: .milliseconds(350))
         }
-        guard processes[profile.id]?.isRunning == true else { return }
+        guard phase(for: profile.id) == .starting, processes[profile.id]?.isRunning == true else { return }
         fail(profile, "\(profile.name) did not open port \(profile.localPort) within \(Int(timeout)) seconds.")
         processes[profile.id]?.terminate()
     }
 
-    private func reconcileExistingListeners() {
+    private func bootstrapRuntime() async {
         for profile in profiles {
-            guard let listener = PortInspector.listener(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) else { continue }
-            adopt(listener, for: profile)
+            guard phase(for: profile.id) == .stopped else { continue }
+            if let listener = await PortInspector.listenerAsync(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) {
+                await adopt(listener, for: profile)
+            } else if profile.autoStart {
+                start(profile)
+                while phase(for: profile.id) == .starting {
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
+            }
+            await Task.yield()
         }
     }
 
-    private func adopt(_ listener: ListeningProcess, for profile: ServerProfile) {
+    private func adopt(_ listener: ListeningProcess, for profile: ServerProfile) async {
         do {
-            try gatewayManager.start(profile: profile)
-            if profile.tailscaleRouteEnabled { startTailscaleFunnel() }
-            try enableExposure(profile)
+            try await Task.detached(priority: .utility) { [gatewayManager] in try gatewayManager.start(profile: profile) }.value
+            try await enableExposure(profile)
+            guard phase(for: profile.id) != .stopping else { return }
             adoptedListeners[profile.id] = listener; phases[profile.id] = .running
             appendLog(profile.id, "Adopted existing \(profile.name) listener (PID \(listener.pid)) on port \(profile.localPort).\n")
         } catch { fail(profile, "Found \(profile.name), but could not adopt its gateway or exposure: \(error.localizedDescription)") }
     }
 
-    private func finishStart(_ profile: ServerProfile) {
-        guard processes[profile.id]?.isRunning == true else { return }
+    private func finishStart(_ profile: ServerProfile) async {
+        guard processes[profile.id]?.isRunning == true, phase(for: profile.id) == .starting else { return }
         do {
-            try gatewayManager.start(profile: profile)
-            if profile.tailscaleRouteEnabled { startTailscaleFunnel() }
-            try enableExposure(profile)
+            try await Task.detached(priority: .utility) { [gatewayManager] in try gatewayManager.start(profile: profile) }.value
+            try await enableExposure(profile)
+            guard processes[profile.id]?.isRunning == true, phase(for: profile.id) == .starting else { return }
             phases[profile.id] = .running; appendLog(profile.id, exposureMessage(for: profile))
         } catch {
             gatewayManager.stop(profileID: profile.id)
@@ -238,21 +274,58 @@ final class AppModel: ObservableObject {
     }
 
     func stop(_ profile: ServerProfile, completion: (() -> Void)? = nil) {
-        guard phase(for: profile.id).isActive || adoptedListeners[profile.id] != nil else { phases[profile.id] = .stopped; completion?(); return }
-        phases[profile.id] = .stopping; userStoppedProfiles.insert(profile.id); gatewayManager.stop(profileID: profile.id)
+        if let completion { stopCompletions[profile.id, default: []].append(completion) }
+        guard phase(for: profile.id).isActive || adoptedListeners[profile.id] != nil else {
+            phases[profile.id] = .stopped; completeStops(for: profile.id); return
+        }
+        phases[profile.id] = .stopping
+        userStoppedProfiles.insert(profile.id)
+        gatewayManager.stop(profileID: profile.id)
+
         if let listener = adoptedListeners.removeValue(forKey: profile.id) {
-            do { try PortInspector.terminate(listener) }
-            catch {
-                if PortInspector.listener(on: profile.localPort)?.pid == listener.pid {
-                    fail(profile, "Could not stop adopted PID \(listener.pid): \(error.localizedDescription)")
-                    return
-                }
-                appendLog(profile.id, "Adopted PID \(listener.pid) had already exited; continuing shutdown.\n")
+            Task { @MainActor [weak self] in await self?.stopAdopted(listener, profile: profile) }
+        } else if let process = processes[profile.id], process.isRunning {
+            process.terminate()
+            Task { @MainActor [weak self, weak process] in
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, let process, process.isRunning, self.phase(for: profile.id) == .stopping else { return }
+                _ = try? await CommandRunner.runAsync(executable: "/bin/kill", arguments: ["-KILL", String(process.processIdentifier)])
             }
-        } else if let process = processes[profile.id], process.isRunning { process.terminate() }
-        processes.removeValue(forKey: profile.id); outputPipes.removeValue(forKey: profile.id); phases[profile.id] = .stopped
-        appendLog(profile.id, "Stopped server and released the AI lease. Tailscale Funnel is managed separately.\n")
-        completion?()
+        } else {
+            phases[profile.id] = .stopped
+            appendLog(profile.id, "Stopped server and released the AI lease. Tailscale Funnel is managed separately.\n")
+            completeStops(for: profile.id)
+        }
+    }
+
+    private func stopAdopted(_ listener: ListeningProcess, profile: ServerProfile) async {
+        do {
+            try await PortInspector.terminateAsync(listener)
+            for _ in 0..<20 {
+                guard let current = await PortInspector.listenerAsync(on: profile.localPort), current.pid == listener.pid else { break }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            if let current = await PortInspector.listenerAsync(on: profile.localPort), current.pid == listener.pid {
+                _ = try? await CommandRunner.runAsync(executable: "/bin/kill", arguments: ["-KILL", String(listener.pid)])
+            }
+            phases[profile.id] = .stopped
+            appendLog(profile.id, "Stopped server and released the AI lease. Tailscale Funnel is managed separately.\n")
+            completeStops(for: profile.id)
+        } catch {
+            if let current = await PortInspector.listenerAsync(on: profile.localPort), current.pid == listener.pid {
+                fail(profile, "Could not stop adopted PID \(listener.pid): \(error.localizedDescription)")
+                completeStops(for: profile.id)
+                return
+            }
+            phases[profile.id] = .stopped
+            appendLog(profile.id, "Adopted PID \(listener.pid) had already exited; continuing shutdown.\n")
+            completeStops(for: profile.id)
+        }
+    }
+
+    private func completeStops(for id: UUID) {
+        let completions = stopCompletions.removeValue(forKey: id) ?? []
+        completions.forEach { $0() }
     }
 
     func startAll() {
@@ -262,18 +335,16 @@ final class AppModel: ObservableObject {
         isProcessingBulkLifecycleAction = true
         bulkLifecycleTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer {
-                self.bulkLifecycleTask = nil
-                self.isProcessingBulkLifecycleAction = false
-            }
+            defer { self.bulkLifecycleTask = nil; self.isProcessingBulkLifecycleAction = false }
             for id in queue {
                 if Task.isCancelled { return }
                 guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
                 self.start(profile)
                 while self.phase(for: id) == .starting {
                     if Task.isCancelled { return }
-                    try? await Task.sleep(for: .milliseconds(250))
+                    try? await Task.sleep(for: .milliseconds(150))
                 }
+                await Task.yield()
             }
         }
     }
@@ -285,28 +356,36 @@ final class AppModel: ObservableObject {
         isProcessingBulkLifecycleAction = true
         bulkLifecycleTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer {
-                self.bulkLifecycleTask = nil
-                self.isProcessingBulkLifecycleAction = false
-            }
+            defer { self.bulkLifecycleTask = nil; self.isProcessingBulkLifecycleAction = false }
             for id in queue {
                 if Task.isCancelled { return }
                 guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
-                let managedProcess = self.processes[id]
-                let adoptedPID = self.adoptedListeners[id]?.pid
                 self.stop(profile)
-                while managedProcess?.isRunning == true || self.listenerBelongsToStoppedProfile(profile, adoptedPID: adoptedPID) {
+                while self.phase(for: id).isActive {
                     if Task.isCancelled { return }
-                    try? await Task.sleep(for: .milliseconds(250))
+                    try? await Task.sleep(for: .milliseconds(150))
                 }
+                await Task.yield()
             }
         }
     }
 
-    private func listenerBelongsToStoppedProfile(_ profile: ServerProfile, adoptedPID: Int32?) -> Bool {
-        guard let listener = PortInspector.listener(on: profile.localPort) else { return false }
-        if let adoptedPID { return listener.pid == adoptedPID }
-        return PortInspector.belongsToProfile(listener, profile: profile)
+
+    func stopImmediatelyForApplicationQuit() {
+        bulkLifecycleTask?.cancel()
+        for profile in profiles {
+            gatewayManager.stop(profileID: profile.id)
+            if let listener = adoptedListeners.removeValue(forKey: profile.id) {
+                _ = Darwin.kill(listener.pid, SIGTERM)
+            }
+            if let process = processes[profile.id], process.isRunning {
+                process.terminate()
+            }
+            phases[profile.id] = .stopped
+        }
+        processes.removeAll()
+        outputPipes.removeAll()
+        stopCompletions.removeAll()
     }
 
     func clearLog(for id: UUID) { logs[id] = "" }
@@ -320,9 +399,9 @@ final class AppModel: ObservableObject {
         return environment
     }
 
-    private func enableExposure(_ profile: ServerProfile) throws {
+    private func enableExposure(_ profile: ServerProfile) async throws {
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: profile) else { return }
-        let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+        let result = try await CommandRunner.runAsync(executable: profile.tailscalePath, arguments: arguments)
         guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
         tailscaleFunnelRunning = true; UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
     }

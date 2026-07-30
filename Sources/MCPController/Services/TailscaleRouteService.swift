@@ -21,6 +21,10 @@ enum TailscaleRouteService {
         FileManager.default.isExecutableFile(atPath: path)
     }
 
+    static func dnsNameAsync(cliPath: String) async -> String? {
+        await Task.detached(priority: .utility) { dnsName(cliPath: cliPath) }.value
+    }
+
     static func dnsName(cliPath: String) -> String? {
         guard isCLIAvailable(at: cliPath),
               let result = try? CommandRunner.run(executable: cliPath, arguments: ["status", "--json"]),

@@ -40,7 +40,7 @@ def join(base, suffix): return base if suffix == "/" else base.rstrip("/") + suf
 
 def probe(label, url, token="", timeout=10):
     cmd = ["curl","-sS","-i","--no-buffer","--max-time",str(timeout),"-H","Accept: application/json, text/event-stream","-H","Content-Type: application/json","-d",payload]
-    if token: cmd[7:7] = ["-H","Authorization: Bearer " + token]
+    if token: cmd += ["-H","Authorization: Bearer " + token]
     cmd.append(url)
     response = run(cmd, timeout+3)
     raw = response.stdout or ""

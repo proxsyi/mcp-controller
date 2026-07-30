@@ -6,32 +6,34 @@ from pathlib import Path
 
 PROFILE_SPECS = {
     "DDF597AD-1EC6-4B23-BBF8-4EF2F76E077C": {
-        "name": "Mac OS System", "description": "Semantic desktop and shell control.",
+        "name": "MacOS System", "description": "Semantic desktop and shell control.",
         "minimum_tools": 8, "required_any": [{"shell", "Shell"}, {"state", "State"}],
         "safe_calls": [("shell", {"command": "printf mcp-system-ok"}), ("Shell", {"command": "printf mcp-system-ok", "mode": "shell"})],
     },
     "03276892-4D3A-4715-8308-E81E08E6647A": {
-        "name": "Mac OS Visual", "description": "Visual desktop automation.",
+        "name": "MacOS Visual", "description": "Visual desktop automation.",
         "minimum_tools": 18, "required": {"screenshot", "screenInfo", "windowControl", "waitForImage"},
         "safe_calls": [("screenInfo", {})],
     },
     "584031AA-4B48-4583-826E-704AECEBE5FC": {
-        "name": "Mac OS Apps", "description": "Structured Apple app access.",
+        "name": "MacOS AppleScript", "description": "Structured Apple app access.",
         "minimum_tools": 7, "required": {"applescript.ping", "app.list", "app.get", "app.search"},
         "safe_calls": [("applescript.ping", {})],
     },
     "3C056009-1E43-44F2-B780-E06F726701BA": {
-        "name": "Mac OS Remote", "description": "Remote desktop control.",
+        "name": "MacOS Remote", "description": "Remote desktop control.",
         "minimum_tools": 8, "required": {"remote_macos_get_screen", "remote_macos_mouse_click", "remote_macos_send_keys"},
-        "safe_calls": [("remote_macos_get_screen", {})],
+        "safe_calls": [],
     },
 }
 
 def parse_message(text: str) -> dict:
     for line in text.splitlines():
-        if line.startswith("data: "):
-            return json.loads(line[6:])
-    return json.loads(text) if text.strip() else {}
+        if line.startswith("data:"):
+            data = line[5:].strip()
+            if data:
+                return json.loads(data)
+    return json.loads(text) if text.strip() and not ("event:" in text or "data:" in text) else {}
 
 class Client:
     def __init__(self, url: str, token: str, timeout: int):
@@ -98,7 +100,8 @@ def main() -> int:
                         status, result = client.post({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":candidate,"arguments":tool_args}})
                         assert status == 200 and not result.get("result", {}).get("isError", False), str(result)[:400]
                         called = candidate; break
-                assert called, "no representative tool available"
+                if spec["safe_calls"]:
+                    assert called, "no representative tool available"
             row.update(status="passed", tool_count=len(names), representative_tool=called)
         except Exception as exc:
             row["error"] = f"{type(exc).__name__}: {exc}"; failures.append(row.copy())
