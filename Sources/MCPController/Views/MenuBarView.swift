@@ -31,7 +31,7 @@ struct MenuBarView: View {
                     Button("Start Everything", systemImage: "play.fill") { model.startAll() }
                         .controlSize(.small)
                         .disabled(model.profiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
-                    Button("Release Everything", systemImage: "arrow.uturn.left.circle") { model.releaseAllLeases() }
+                    Button("Release All", systemImage: "arrow.uturn.left.circle") { model.releaseAllLeases() }
                         .controlSize(.small)
                         .disabled(model.activeLeaseCount == 0)
                 }

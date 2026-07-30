@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var pendingConnections: [UUID: [GatewayPendingSnapshot]] = [:]
     @Published var tailscaleFunnelRunning = UserDefaults.standard.bool(forKey: "tailscale.funnelRunning")
     @Published var presentedError: String?
+    @Published private(set) var isProcessingBulkLifecycleAction = false
 
     private let store = ProfileStore()
     private let gatewayManager = ExclusiveGatewayManager()
@@ -27,7 +28,6 @@ final class AppModel: ObservableObject {
     var runningCount: Int { phases.values.filter(\.isActive).count }
     var failedCount: Int { profiles.filter { phase(for: $0.id).isFailed }.count }
     var activeLeaseCount: Int { gatewayLeases.count }
-    var isProcessingBulkLifecycleAction: Bool { bulkLifecycleTask != nil }
 
     init() {
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
@@ -259,9 +259,13 @@ final class AppModel: ObservableObject {
         let queue = profiles.map(\.id).filter { !phase(for: $0).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
+        isProcessingBulkLifecycleAction = true
         bulkLifecycleTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.bulkLifecycleTask = nil }
+            defer {
+                self.bulkLifecycleTask = nil
+                self.isProcessingBulkLifecycleAction = false
+            }
             for id in queue {
                 if Task.isCancelled { return }
                 guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
@@ -278,19 +282,31 @@ final class AppModel: ObservableObject {
         let queue = profiles.map(\.id).filter { phase(for: $0).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
+        isProcessingBulkLifecycleAction = true
         bulkLifecycleTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.bulkLifecycleTask = nil }
+            defer {
+                self.bulkLifecycleTask = nil
+                self.isProcessingBulkLifecycleAction = false
+            }
             for id in queue {
                 if Task.isCancelled { return }
                 guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
+                let managedProcess = self.processes[id]
+                let adoptedPID = self.adoptedListeners[id]?.pid
                 self.stop(profile)
-                while self.phase(for: id).isActive {
+                while managedProcess?.isRunning == true || self.listenerBelongsToStoppedProfile(profile, adoptedPID: adoptedPID) {
                     if Task.isCancelled { return }
                     try? await Task.sleep(for: .milliseconds(250))
                 }
             }
         }
+    }
+
+    private func listenerBelongsToStoppedProfile(_ profile: ServerProfile, adoptedPID: Int32?) -> Bool {
+        guard let listener = PortInspector.listener(on: profile.localPort) else { return false }
+        if let adoptedPID { return listener.pid == adoptedPID }
+        return PortInspector.belongsToProfile(listener, profile: profile)
     }
 
     func clearLog(for id: UUID) { logs[id] = "" }
