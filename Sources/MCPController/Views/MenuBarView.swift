@@ -23,9 +23,14 @@ struct MenuBarView: View {
                 ScrollView {
                     LazyVStack(spacing: 2) { ForEach(model.profiles) { serverRow($0) } }
                 }.frame(height: min(CGFloat(model.profiles.count) * 44, 240))
-                if model.runningCount > 0 {
-                    Divider()
-                    Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }.controlSize(.small)
+                Divider()
+                HStack(spacing: 8) {
+                    Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }
+                        .controlSize(.small)
+                        .disabled(model.runningCount == 0)
+                    Button("Start Everything", systemImage: "play.fill") { model.startAll() }
+                        .controlSize(.small)
+                        .disabled(model.profiles.allSatisfy { model.phase(for: $0.id).isActive })
                 }
             }
         }.padding(10).frame(width: 340)

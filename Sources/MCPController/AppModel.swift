@@ -193,6 +193,7 @@ final class AppModel: ObservableObject {
         completion?()
     }
 
+    func startAll() { for profile in profiles where !phase(for: profile.id).isActive { start(profile) } }
     func stopAll() { for profile in profiles where phase(for: profile.id).isActive { stop(profile) } }
     func clearLog(for id: UUID) { logs[id] = "" }
     private func fail(_ profile: ServerProfile, _ message: String) { phases[profile.id] = .failed(message); presentedError = message; appendLog(profile.id, message + "\n") }
