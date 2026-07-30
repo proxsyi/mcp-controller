@@ -2,13 +2,13 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.7.7` (build 24).
+Current release: `v0.7.8` (build 25).
 
 ## What it does
 
 - Stores reusable profiles for independently installed local servers and hosted MCP bridges.
 - Starts, stops, restarts, adopts, and monitors each managed process independently.
-- Queues bulk start and stop actions so each server finishes its transition before the next begins.
+- Queues bulk start and stop actions so each server finishes its transition before the next begins, without blocking the menu bar or main window.
 - Supports local-only, tailnet-only, and public Tailscale Funnel exposure.
 - Adds and removes only the path-scoped Tailscale route owned by each profile.
 - Controls the global Funnel separately while automatically starting it when a configured public profile requires it.
@@ -166,16 +166,25 @@ The global Funnel remains independently controllable. Quitting MCP Controller th
 Useful diagnostics include:
 
 ```bash
+python3 scripts/validate-all-profiles.py
 python3 scripts/test-mcp-servers.py
 python3 scripts/check-mcp-stack.py
 bash scripts/check-notion-validation.sh
 bash scripts/run-mcp-health-check.sh
 ```
 
+`validate-all-profiles.py` checks every configured profile through both the localhost gateway and its public Tailscale route, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease.
+
 Validate a new profile locally and publicly before adding its custom MCP URL to another client.
+
+## Performance and lifecycle behavior
+
+Process inspection, readiness polling, gateway startup, route changes, Tailscale DNS lookup, and process termination run away from the main actor. Tailscale DNS is cached, bulk transitions are sequenced by actual runtime phase, and managed shutdown still sends immediate termination signals before app exit. On the fifteen-profile validation machine, terminal control became ready in about 0.54 seconds after launch; cached status calls were typically 0.15–0.26 seconds. Start Everything returned in 0.278 seconds and Stop Everything in 0.172 seconds while the queues continued without freezing the menu bar.
+
+The circular arrow beside a server and Release All are lease-release controls. They disconnect the current AI lease without stopping the MCP server, allowing the same or another authorized client to reconnect.
 
 ## Security
 
 Public Funnel endpoints are internet-accessible. Use a unique high-entropy gateway key per client, review waiting connections before approval, and avoid broad provider credentials when narrower scopes are available.
 
-The app and provider OAuth stores contain live credentials locally. Do not commit profile exports, provider token files, logs containing secrets, or Application Support data. Release artifacts are currently unsigned; Developer ID signing, notarization, and additional security review remain pending.
+The app and provider OAuth stores contain live credentials locally. Do not commit profile exports, provider token files, logs containing secrets, or Application Support data. Local and release artifacts use the available stable local signing identity. Apple Developer ID signing and notarization remain blocked until a Developer ID Application certificate and notary credentials are available; additional security review remains pending.

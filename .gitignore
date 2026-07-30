@@ -5,3 +5,6 @@ dist/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 .env
+
+__pycache__/
+*.py[cod]

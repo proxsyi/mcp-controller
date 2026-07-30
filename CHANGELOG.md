@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.8 — 2026-07-30
+
+- Moved process inspection, readiness polling, gateway startup, Tailscale routing, and termination work off the main actor.
+- Cached Tailscale DNS lookups and removed duplicate route work during individual starts.
+- Preserved sequential bulk lifecycle behavior while keeping the menu bar and terminal controller responsive.
+- Made restart completion wait for actual process termination and retained immediate managed-quit cleanup.
+- Verified individual Release and Release All controls disconnect leases without stopping servers, and verified reconnect after release.
+- Added an all-profile gateway/public validation matrix and repaired stale diagnostics.
+- Validated all fifteen running profiles; fourteen non-active profiles passed 28 gateway/public surfaces while MacOS System was validated through the active controller connection.
+- Recorded that Developer ID notarization remains blocked by missing Apple Developer credentials.
+
 ## 0.7.7 — 2026-07-30
 
 - Added a Release All control beside Start Everything.
