@@ -24,9 +24,11 @@ class MCPClient:
     @staticmethod
     def parse(text: str) -> dict:
         for line in text.splitlines():
-            if line.startswith("data: "):
-                return json.loads(line[6:])
-        return json.loads(text) if text.strip() else {}
+            if line.startswith("data:"):
+                data = line[5:].strip()
+                if data:
+                    return json.loads(data)
+        return json.loads(text) if text.strip() and not ("event:" in text or "data:" in text) else {}
 
     def post(self, method: str, params: dict | None = None, notification: bool = False) -> tuple[int, dict]:
         payload = {"jsonrpc": "2.0", "method": method}
@@ -79,11 +81,15 @@ def main() -> int:
     parser.add_argument("--config", default=str(pathlib.Path.home()/"Library/Application Support/MCP Controller/servers.json"))
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--catalog-only", action="store_true")
+    parser.add_argument("--skip", action="append", default=[], help="Profile name to skip (repeatable)")
     args = parser.parse_args()
     profiles = json.loads(pathlib.Path(args.config).read_text())
     dns = dns_name(profiles)
     report, failures = [], []
     for profile in profiles:
+        if profile["name"] in args.skip:
+            print(json.dumps({"name": profile["name"], "status": "skipped"}), flush=True)
+            continue
         row = {"name": profile["name"], "surfaces": {}}
         token = token_for(profile)
         surfaces = {
@@ -102,7 +108,8 @@ def main() -> int:
                 failures.append({"profile": profile["name"], "surface": surface, "error": detail})
         report.append(row)
         print(json.dumps(row, sort_keys=True), flush=True)
-    summary = {"passedSurfaces": len(profiles)*2-len(failures), "failedSurfaces": len(failures), "profiles": report, "failures": failures}
+    tested_surfaces = len(report) * 2
+    summary = {"passedSurfaces": tested_surfaces-len(failures), "failedSurfaces": len(failures), "skippedProfiles": args.skip, "profiles": report, "failures": failures}
     print(json.dumps(summary, indent=2))
     return 1 if failures else 0
 
