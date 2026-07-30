@@ -27,17 +27,21 @@ struct MenuBarView: View {
                 HStack(spacing: 8) {
                     Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }
                         .controlSize(.small)
-                        .disabled(model.runningCount == 0)
+                        .disabled(model.runningCount == 0 || model.isProcessingBulkLifecycleAction)
                     Button("Start Everything", systemImage: "play.fill") { model.startAll() }
                         .controlSize(.small)
-                        .disabled(model.profiles.allSatisfy { model.phase(for: $0.id).isActive })
+                        .disabled(model.profiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
+                    Button("Release Everything", systemImage: "arrow.uturn.left.circle") { model.releaseAllLeases() }
+                        .controlSize(.small)
+                        .disabled(model.activeLeaseCount == 0)
                 }
             }
-        }.padding(10).frame(width: 340)
+        }.padding(10).frame(width: 390)
     }
 
     private func serverRow(_ profile: ServerProfile) -> some View {
         let phase = model.phase(for: profile.id)
+        let hasLease = model.lease(for: profile.id) != nil
         return HStack(spacing: 8) {
             Circle().fill(statusColor(phase)).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
@@ -48,13 +52,32 @@ struct MenuBarView: View {
             if phase == .stopping {
                 ProgressView().controlSize(.small).frame(width: 54)
             } else {
-                Button(phase.isFailed ? "Copy" : phase.isActive ? "Stop" : "Start", systemImage: phase.isFailed ? "square.on.square" : phase.isActive ? "stop.fill" : "play.fill") {
-                    if phase.isFailed {
-                        let text = model.acknowledgeFailureAndReturnLogs(for: profile.id)
-                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
-                    } else if phase.isActive { model.stop(profile) } else { model.start(profile) }
+                HStack(spacing: 6) {
+                    Button {
+                        model.releaseLease(profileID: profile.id)
+                    } label: {
+                        Image(systemName: "arrow.uturn.left.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(hasLease ? Color.orange : Color.secondary.opacity(0.4))
+                    .background(Circle().fill((hasLease ? Color.orange : Color.secondary).opacity(hasLease ? 0.16 : 0.08)))
+                    .clipShape(Circle())
+                    .help(hasLease ? "Release AI lease" : "No active AI lease")
+                    .disabled(!hasLease)
+
+                    Button(phase.isFailed ? "Copy" : phase.isActive ? "Stop" : "Start", systemImage: phase.isFailed ? "square.on.square" : phase.isActive ? "stop.fill" : "play.fill") {
+                        if phase.isFailed {
+                            let text = model.acknowledgeFailureAndReturnLogs(for: profile.id)
+                            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+                        } else if phase.isActive { model.stop(profile) } else { model.start(profile) }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(phase.isFailed || phase.isActive ? .red : .accentColor)
+                    .fixedSize()
                 }
-                .buttonStyle(.bordered).controlSize(.small).tint(phase.isFailed || phase.isActive ? .red : .accentColor).fixedSize()
             }
         }.frame(height: 42)
     }

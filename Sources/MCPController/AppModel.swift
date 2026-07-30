@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     private var adoptedListeners: [UUID: ListeningProcess] = [:]
     private var outputPipes: [UUID: [Pipe]] = [:]
     private var userStoppedProfiles: Set<UUID> = []
+    private var bulkLifecycleTask: Task<Void, Never>?
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
@@ -25,6 +26,8 @@ final class AppModel: ObservableObject {
 
     var runningCount: Int { phases.values.filter(\.isActive).count }
     var failedCount: Int { profiles.filter { phase(for: $0.id).isFailed }.count }
+    var activeLeaseCount: Int { gatewayLeases.count }
+    var isProcessingBulkLifecycleAction: Bool { bulkLifecycleTask != nil }
 
     init() {
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
@@ -53,6 +56,11 @@ final class AppModel: ObservableObject {
     func approve(profileID: UUID, clientID: String) { gatewayManager.approve(profileID: profileID, clientID: clientID) }
     func deny(profileID: UUID, clientID: String) { gatewayManager.deny(profileID: profileID, clientID: clientID) }
     func releaseLease(profileID: UUID) { gatewayManager.release(profileID: profileID) }
+    func releaseAllLeases() {
+        for profile in profiles where lease(for: profile.id) != nil {
+            releaseLease(profileID: profile.id)
+        }
+    }
 
     func acknowledgeFailureAndReturnLogs(for id: UUID) -> String {
         let text = logs[id] ?? ""
@@ -247,8 +255,44 @@ final class AppModel: ObservableObject {
         completion?()
     }
 
-    func startAll() { for profile in profiles where !phase(for: profile.id).isActive { start(profile) } }
-    func stopAll() { for profile in profiles where phase(for: profile.id).isActive { stop(profile) } }
+    func startAll() {
+        let queue = profiles.map(\.id).filter { !phase(for: $0).isActive }
+        guard !queue.isEmpty else { return }
+        bulkLifecycleTask?.cancel()
+        bulkLifecycleTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.bulkLifecycleTask = nil }
+            for id in queue {
+                if Task.isCancelled { return }
+                guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
+                self.start(profile)
+                while self.phase(for: id) == .starting {
+                    if Task.isCancelled { return }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+        }
+    }
+
+    func stopAll() {
+        let queue = profiles.map(\.id).filter { phase(for: $0).isActive }
+        guard !queue.isEmpty else { return }
+        bulkLifecycleTask?.cancel()
+        bulkLifecycleTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.bulkLifecycleTask = nil }
+            for id in queue {
+                if Task.isCancelled { return }
+                guard let profile = self.profiles.first(where: { $0.id == id }) else { continue }
+                self.stop(profile)
+                while self.phase(for: id).isActive {
+                    if Task.isCancelled { return }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+        }
+    }
+
     func clearLog(for id: UUID) { logs[id] = "" }
     private func fail(_ profile: ServerProfile, _ message: String) { phases[profile.id] = .failed(message); presentedError = message; appendLog(profile.id, message + "\n") }
 
