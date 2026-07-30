@@ -19,6 +19,10 @@ final class AppModel: ObservableObject {
     private var outputPipes: [UUID: [Pipe]] = [:]
     private var userStoppedProfiles: Set<UUID> = []
 
+    var onShowSettings: (() -> Void)?
+    var onCheckForUpdates: (() -> String)?
+    var onInstallUpdate: (() -> String)?
+
     var runningCount: Int { phases.values.filter(\.isActive).count }
     var failedCount: Int { profiles.filter { phase(for: $0.id).isFailed }.count }
 
@@ -69,6 +73,56 @@ final class AppModel: ObservableObject {
         copy.gatewayPort = nextAvailableGatewayPort(); copy.mountPath = uniqueMountPath(for: copy.name)
         copy.clientCredentials = copy.clientCredentials.map { GatewayClientCredential.generate(name: $0.name) }
         add(copy)
+    }
+
+    func defaultProfileTemplate() -> ServerProfile {
+        var profile = ServerProfile()
+        profile.localPort = nextAvailableLocalPort()
+        profile.gatewayPort = nextAvailableGatewayPort()
+        profile.mountPath = uniqueMountPath(for: profile.name)
+        profile.tailscalePath = TailscaleRouteService.defaultCLIPath
+        if UserDefaults.standard.bool(forKey: "settings.oneAIOnly") {
+            profile.exclusiveGatewayEnabled = true
+            profile.clientCredentials = [.generate(name: "Primary AI")]
+        }
+        return profile
+    }
+
+    @discardableResult
+    func saveProfile(_ profile: ServerProfile) -> ServerProfile {
+        if profiles.contains(where: { $0.id == profile.id }) { update(profile) }
+        else { add(profile) }
+        return profile
+    }
+
+    @discardableResult
+    func createProfile(name: String, description: String, executablePath: String, workingDirectory: String, localPort: Int?) -> ServerProfile {
+        var profile = defaultProfileTemplate()
+        profile.name = name
+        profile.description = description
+        profile.executablePath = executablePath
+        profile.workingDirectory = workingDirectory
+        if let localPort { profile.localPort = localPort }
+        if profile.gatewayPort == profile.localPort {
+            profile.gatewayPort = nextAvailableGatewayPort(startingAt: min(profile.localPort + 1, 65_535))
+        }
+        profile.mountPath = uniqueMountPath(for: profile.name)
+        add(profile)
+        return profile
+    }
+
+    func remoteURL(for profile: ServerProfile) -> String? {
+        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
+        guard let dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath), !dnsName.isEmpty else { return nil }
+        return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+    }
+
+    func applyDefaultTailscaleCLIToAllProfiles() {
+        for original in profiles {
+            var profile = original
+            profile.tailscalePath = TailscaleRouteService.defaultCLIPath
+            if profile != original { update(profile) }
+        }
     }
 
     func remove(_ profile: ServerProfile) {

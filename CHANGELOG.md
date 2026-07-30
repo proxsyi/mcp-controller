@@ -4,6 +4,16 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+## v0.7.6
+
+### Added
+- Expanded `mcpctl` so the terminal can create profiles, print remote URLs, manage access keys, inspect leases and pending requests, approve or deny waiting clients, reset Tailscale CLI paths, open Settings, and trigger update checks or installs.
+- Documented the full terminal command surface, including the export-edit-save workflow for editing any profile field from Terminal.
+
+### Fixed
+- Corrected the GitHub Actions release workflow so tag builds resolve the tagged commit before publishing a release.
+- Limited automatic GitHub release publishing to tag-triggered workflow runs so version bumps on `main` no longer race the release step.
+
 ## v0.7.5
 
 ### Added

@@ -12,15 +12,29 @@ def ensure_app():
 
 def main():
     parser=argparse.ArgumentParser(prog="mcpctl", description="Control MCP Controller from Terminal")
-    parser.add_argument("action", help="list, status, show, export, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, funnel-start, funnel-stop, funnel-status, lease-release, duplicate, remove, one-ai, open, quit")
+    parser.add_argument("action", help="list, status, show, export, template, new, save, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, remote-url, funnel-start, funnel-stop, funnel-status, use-default-cli, lease, lease-release, pending, approve, deny, keys, key-add, key-remove, key-show, duplicate, remove, one-ai, check-updates, install-update, open, settings, quit")
     parser.add_argument("target", nargs="?", help="Server name or UUID")
     parser.add_argument("--secrets", action="store_true", help="Include stored secrets in export")
-    parser.add_argument("--file", help="Profile JSON file for import")
+    parser.add_argument("--file", help="Profile JSON file for save/import")
     parser.add_argument("--enabled", choices=["true","false"], help="Boolean for one-ai")
+    parser.add_argument("--name", help="Server name for new or access-key name for key-add")
+    parser.add_argument("--description", help="Server description for new")
+    parser.add_argument("--executable", help="Absolute executable path for new")
+    parser.add_argument("--working-directory", help="Working directory for new")
+    parser.add_argument("--local-port", help="Local port for new")
+    parser.add_argument("--client-id", help="Waiting client identifier for approve/deny")
+    parser.add_argument("--key", help="Access key name or UUID for key-show/key-remove")
     args=parser.parse_args(); ensure_app(); reqdir.mkdir(parents=True, exist_ok=True); respdir.mkdir(parents=True, exist_ok=True)
     ident=str(uuid.uuid4()); extra={"secrets":str(args.secrets).lower()}
     if args.file: extra["json"]=pathlib.Path(args.file).read_text()
     if args.enabled: extra["enabled"]=args.enabled
+    if args.name: extra["name"]=args.name; extra["keyName"]=args.name
+    if args.description: extra["description"]=args.description
+    if args.executable: extra["executablePath"]=args.executable
+    if args.working_directory: extra["workingDirectory"]=args.working_directory
+    if args.local_port: extra["localPort"]=args.local_port
+    if args.client_id: extra["clientID"]=args.client_id
+    if args.key: extra["key"]=args.key
     request={"id":ident,"action":args.action,"target":args.target,"arguments":extra}
     temp=reqdir/(ident+".tmp"); final=reqdir/(ident+".json")
     temp.write_text(json.dumps(request)); temp.rename(final); response=respdir/(ident+".json")
