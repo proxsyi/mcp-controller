@@ -1,29 +1,28 @@
 # MCP Controller
 
-MCP Controller is a native macOS app for managing local MCP server processes and exposing their HTTP endpoints through Tailscale only when needed.
+MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
+
+Current release: `v0.7.4` (build 21).
 
 ## What it does
 
-- Add and remove MCP server profiles without hard-coding specific servers.
-- Point each profile at an executable, arguments, working directory, environment, and local HTTP port.
-- Start and stop each process independently.
-- Keep a server local, expose it only to the tailnet, or publish it through Tailscale Funnel.
-- Optionally place a built-in exclusive-access gateway between Tailscale and a server.
-- Give each AI connection its own Bearer access key.
-- Allow only one AI to hold a server lease at a time.
-- Queue competing AI connections for approval in the app.
-- Remove the exact Tailscale mount owned by a profile when it stops or is deleted.
-- Provide a global stop control from the menu bar.
-- Persist configuration under `~/Library/Application Support/MCP Controller/servers.json`.
+- Stores reusable profiles for independently installed local servers and hosted MCP bridges.
+- Starts, stops, restarts, adopts, and monitors each managed process independently.
+- Supports local-only, tailnet-only, and public Tailscale Funnel exposure.
+- Adds and removes only the path-scoped Tailscale route owned by each profile.
+- Controls the global Funnel separately while automatically starting it when a configured public profile requires it.
+- Optionally places a localhost exclusive-access gateway in front of a server.
+- Uses separate Bearer keys and one-client leases for remote AI connections.
+- Provides menu-bar controls, bounded logs, readiness checks, update checks, and terminal control through `mcpctl`.
+- Stops managed servers, gateways, routes, leases, and Funnel during the app's managed quit path.
+- Persists local configuration under `~/Library/Application Support/MCP Controller/servers.json`.
 
-MCP Controller does not install third-party MCP servers. Install each server separately, then point a profile at its executable or HTTP bridge.
+MCP Controller does not bundle third-party MCP servers. Install or identify each server separately, then create a profile for its executable, local HTTP endpoint, or OAuth-capable remote bridge.
 
 ## Local path
 
-The intended clone location is:
-
 ```text
-~/Projects/Clients/Versyi/MCP Controller
+~/Projects/Clients/Versyi/MCP-Controller
 ```
 
 ## Requirements
@@ -31,73 +30,124 @@ The intended clone location is:
 - macOS 14 or newer
 - Xcode 26 for native Liquid Glass builds
 - Tailscale CLI for tailnet or Funnel exposure
-- An MCP server that listens over Streamable HTTP, or a separate stdio-to-HTTP MCP bridge
+- A Streamable HTTP MCP server, or a stdio/remote bridge such as `mcp-proxy` and `mcp-remote`
 
-## Build
+## Build and install
 
 ```bash
 swift test
 bash scripts/build-app.sh
-open "dist/MCP Controller.app"
+bash scripts/install-local.sh
+open "/Applications/MCP Controller.app"
 ```
 
-GitHub Actions also publishes a zipped unsigned app bundle as a workflow artifact.
+GitHub Actions builds a zipped unsigned app bundle. Developer ID signing and notarization remain pending.
 
 ## Adding a server
 
 1. Add a profile in the app.
-2. Enter the absolute executable path.
-3. Add one command-line argument per line. `{port}` is replaced with the configured upstream MCP port.
-4. Set the working directory and any environment values.
-5. Enter the local HTTP port used by the MCP endpoint or bridge.
-6. Choose Local only, Tailnet, or Public Funnel.
-7. Choose a unique path such as `/mcp/dev`.
-8. Optionally enable exclusive AI access and add one access key for every AI connection.
-9. Start the profile.
+2. Use a clear product name for product-specific servers and a functional name for broad system servers.
+3. Enter the absolute executable path.
+4. Add one command-line argument per line. `{port}` is replaced with the profile's local port.
+5. Set the working directory and required environment values.
+6. Allocate a unique local port, exclusive gateway port, and Funnel path.
+7. Choose Local only, Tailnet, or Public Funnel.
+8. Enable remote-client compatibility when the hosted client requires it.
+9. Enable the exclusive gateway and create a separate Bearer key for each remote client.
+10. Start the profile and verify local initialization, public initialization, `tools/list`, and one non-destructive tool call.
+
+Keep provider credentials in local environment values or provider-managed OAuth storage. Keep gateway Bearer keys in the local profile store. Do not put live credentials in Git or authored documentation.
+
+## Bridge patterns
+
+### Local stdio server
+
+```text
+npx -y mcp-proxy@6.5.4 --host 127.0.0.1 --port {port} --server stream --streamEndpoint / -- <server command>
+```
+
+### Hosted OAuth server
+
+```text
+npx -y mcp-proxy@6.5.4 --host 127.0.0.1 --port {port} --server stream --streamEndpoint / -- npx -y mcp-remote@0.1.38 <remote MCP URL> <OAuth callback port> --transport http-only --auth-timeout 300
+```
+
+`mcp-remote` stores provider OAuth sessions under `~/.mcp-auth`. MCP Controller exposes the local bridge through its separate gateway and Tailscale route.
+
+## Terminal control
+
+The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces.
+
+```bash
+# Inventory and details
+~/.local/bin/mcpctl list
+~/.local/bin/mcpctl status "Server Name"
+~/.local/bin/mcpctl show "Server Name"
+
+# Lifecycle
+~/.local/bin/mcpctl start "Server Name"
+~/.local/bin/mcpctl stop "Server Name"
+~/.local/bin/mcpctl restart "Server Name"
+~/.local/bin/mcpctl start-all
+~/.local/bin/mcpctl stop-all
+
+# Logs
+~/.local/bin/mcpctl logs "Server Name"
+~/.local/bin/mcpctl clear-logs "Server Name"
+
+# Route and Funnel controls
+~/.local/bin/mcpctl route-start "Server Name"
+~/.local/bin/mcpctl route-stop "Server Name"
+~/.local/bin/mcpctl funnel-start
+~/.local/bin/mcpctl funnel-stop
+~/.local/bin/mcpctl funnel-status
+
+# Leases and profiles
+~/.local/bin/mcpctl lease-release "Server Name"
+~/.local/bin/mcpctl duplicate "Server Name"
+~/.local/bin/mcpctl export "Server Name"
+~/.local/bin/mcpctl import --file /absolute/path/profile.json
+~/.local/bin/mcpctl remove "Server Name"
+
+# App lifecycle
+~/.local/bin/mcpctl open
+~/.local/bin/mcpctl quit
+```
 
 ## Exclusive AI access
 
-When exclusive access is enabled, MCP Controller starts a localhost gateway on the profile's gateway port. Tailscale exposes the gateway instead of the upstream MCP server.
+When exclusive access is enabled, MCP Controller listens on a profile-specific gateway port bound to `127.0.0.1`. Tailscale exposes the gateway instead of the upstream server.
 
-Each AI must use a different generated key as its `Authorization: Bearer` token:
+- The first valid Bearer key receives the lease.
+- Competing keys receive a retryable JSON-RPC connection-in-use response and appear in the approval queue.
+- Approval transfers the lease; the waiting client retries its request.
+- Gateway authorization is consumed locally and never forwarded upstream.
+- Origin headers are validated against the profile's allowlist.
+- Stopping a profile releases its lease and gateway.
 
-1. The first valid AI key to send a request receives the lease.
-2. Requests from that key continue to reach the upstream MCP server.
-3. A different key receives HTTP `409 Conflict` with a JSON-RPC implementation error:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "error": {
-    "code": -32001,
-    "message": "Connection in use. Please wait for user confirmation, then retry.",
-    "data": {
-      "retryable": true,
-      "state": "waiting_for_user_confirmation"
-    }
-  }
-}
-```
-
-4. The waiting AI appears in MCP Controller with Approve and Deny controls.
-5. Approval transfers the lease. The waiting AI must retry its request.
-6. The lease can also be released manually, by a successful MCP session DELETE, by inactivity timeout, or when the profile stops.
-
-Gateway Bearer keys are consumed by MCP Controller and are not forwarded to the local upstream server. Requests with an `Origin` header are rejected unless the exact origin is listed in the profile. The listener binds only to `127.0.0.1`.
-
-The gateway forwards Streamable HTTP POST and DELETE requests. It returns `405 Method Not Allowed` for optional SSE GET streams, which is allowed by the MCP Streamable HTTP specification. Server-initiated messages that require a standalone SSE GET stream are not supported in this development build.
+Remote-client compatibility can normalize MCP request headers, bridge negotiated protocol versions, acknowledge notifications, and provide empty optional discovery responses when required by strict hosted clients.
 
 ## Exposure cleanup
 
-The controller uses path-scoped Tailscale commands. Stopping or deleting a profile runs the matching `off` command for that profile’s HTTPS port and mount path. It intentionally does not run `tailscale serve reset`, `tailscale funnel reset`, or `tailscale down`, because those commands could remove unrelated Tailscale configuration.
+Stopping or removing a profile disables only that profile's configured route. The app intentionally avoids broad commands such as `tailscale serve reset`, `tailscale funnel reset`, and `tailscale down` because they could remove unrelated configuration.
 
-Funnel supports public ports `443`, `8443`, and `10000`. Multiple profiles can share an HTTPS port when each uses a unique mount path.
+The global Funnel remains independently controllable. Quitting MCP Controller through its managed quit path stops managed processes, gateways, routes, leases, and Funnel.
+
+## Validation
+
+Useful diagnostics include:
+
+```bash
+python3 scripts/test-mcp-servers.py
+python3 scripts/check-mcp-stack.py
+bash scripts/check-notion-validation.sh
+bash scripts/run-mcp-health-check.sh
+```
+
+Validate a new profile locally and publicly before adding its custom MCP URL to another client.
 
 ## Security
 
-Public Funnel endpoints are internet-accessible. Enable exclusive access, use a unique high-entropy key per AI, and review every waiting connection before approval.
+Public Funnel endpoints are internet-accessible. Use a unique high-entropy gateway key per client, review waiting connections before approval, and avoid broad provider credentials when narrower scopes are available.
 
-Access keys currently live in the local profile file in Application Support. Do not commit or paste that file into Notion. Keychain-backed storage, code signing, notarization, health checks, complete SSE proxying, and real-device security testing remain required before the first stable release.
-
-The app is currently unsigned.
+The app and provider OAuth stores contain live credentials locally. Do not commit profile exports, provider token files, logs containing secrets, or Application Support data. Release artifacts are currently unsigned; Developer ID signing, notarization, and additional security review remain pending.
