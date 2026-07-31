@@ -55,7 +55,10 @@ final class ProfileStoreTests: XCTestCase {
     }
 
     private func permissions(at url: URL) -> Int? {
-        let value = try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber
-        return value??.intValue
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let number = attributes[.posixPermissions] as? NSNumber else {
+            return nil
+        }
+        return number.intValue
     }
 }
