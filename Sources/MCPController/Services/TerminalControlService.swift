@@ -18,9 +18,13 @@ struct TerminalControlResponse: Codable, Sendable {
 
 final class TerminalControlService: @unchecked Sendable {
     typealias Handler = @Sendable (TerminalControlRequest) async -> TerminalControlResponse
+
     private let queue = DispatchQueue(label: "com.versyi.mcp-controller.terminal-control")
-    private var timer: DispatchSourceTimer?
     private var handler: Handler?
+    private var isRunning = false
+
+    private let activePollInterval: TimeInterval = 0.1
+    private let idlePollInterval: TimeInterval = 0.75
 
     private var baseURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -33,21 +37,39 @@ final class TerminalControlService: @unchecked Sendable {
         self.handler = handler
         try? FileManager.default.createDirectory(at: requestsURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try? FileManager.default.createDirectory(at: responsesURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(200))
-        timer.setEventHandler { [weak self] in self?.processRequests() }
-        self.timer = timer
-        timer.resume()
+        guard !isRunning else { return }
+        isRunning = true
+        scheduleNextPoll(after: 0)
     }
 
-    private func processRequests() {
-        guard let handler else { return }
-        let urls = (try? FileManager.default.contentsOfDirectory(at: requestsURL, includingPropertiesForKeys: nil)) ?? []
+    private func scheduleNextPoll(after delay: TimeInterval) {
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.pollAndReschedule()
+        }
+    }
+
+    private func pollAndReschedule() {
+        guard isRunning else { return }
+        let processedAny = processRequests()
+        scheduleNextPoll(after: processedAny ? activePollInterval : idlePollInterval)
+    }
+
+    @discardableResult
+    private func processRequests() -> Bool {
+        guard let handler else { return false }
+
+        let urls = sortedRequestURLs()
+        guard !urls.isEmpty else { return false }
+
+        var processedAny = false
         for url in urls where url.pathExtension == "json" {
             guard let data = try? Data(contentsOf: url), let request = try? JSONDecoder().decode(TerminalControlRequest.self, from: data) else {
-                try? FileManager.default.removeItem(at: url); continue
+                try? FileManager.default.removeItem(at: url)
+                processedAny = true
+                continue
             }
             try? FileManager.default.removeItem(at: url)
+            processedAny = true
             Task {
                 let response = await handler(request)
                 guard let output = try? JSONEncoder().encode(response) else { return }
@@ -55,5 +77,25 @@ final class TerminalControlService: @unchecked Sendable {
                 try? output.write(to: destination, options: .atomic)
             }
         }
+        return processedAny
+    }
+
+    private func sortedRequestURLs() -> [URL] {
+        let keys: Set<URLResourceKey> = [.creationDateKey, .contentModificationDateKey, .nameKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(at: requestsURL, includingPropertiesForKeys: Array(keys))) ?? []
+        return urls.sorted { lhs, rhs in
+            let left = sortKey(for: lhs)
+            let right = sortKey(for: rhs)
+            if left.date != right.date { return left.date < right.date }
+            return left.name.localizedStandardCompare(right.name) == .orderedAscending
+        }
+    }
+
+    private func sortKey(for url: URL) -> (date: Date, name: String) {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey, .nameKey])
+        return (
+            values?.creationDate ?? values?.contentModificationDate ?? .distantPast,
+            values?.name ?? url.lastPathComponent
+        )
     }
 }
