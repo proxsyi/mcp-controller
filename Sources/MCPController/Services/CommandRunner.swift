@@ -60,16 +60,27 @@ enum CommandRunner {
                     _ = Darwin.kill(process.processIdentifier, SIGKILL)
                     _ = completion.wait(timeout: .now() + 2)
                 }
+                try? outputPipe.fileHandleForReading.close()
+                try? errorPipe.fileHandleForReading.close()
+                _ = readers.wait(timeout: .now() + 1)
             }
         } else {
             completion.wait()
             timedOut = false
         }
 
-        readers.wait()
+        if !timedOut {
+            readers.wait()
+        }
 
-        let output = String(decoding: outputData, as: UTF8.self)
-        let error = String(decoding: errorData, as: UTF8.self)
+        outputLock.lock()
+        let capturedOutput = outputData
+        outputLock.unlock()
+        errorLock.lock()
+        let capturedError = errorData
+        errorLock.unlock()
+        let output = String(decoding: capturedOutput, as: UTF8.self)
+        let error = String(decoding: capturedError, as: UTF8.self)
 
         if timedOut {
             throw CommandRunnerError.timedOut(executable: executable, arguments: arguments, output: output, error: error)
