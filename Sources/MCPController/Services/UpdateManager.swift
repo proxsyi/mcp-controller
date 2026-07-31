@@ -22,6 +22,7 @@ final class UpdateManager: ObservableObject {
     private var latestRelease: GitHubRelease?
     private var checkTask: Task<Void, Never>?
     private var installTask: Task<Void, Never>?
+    private var installAfterCheck = false
 
     var updateAvailable: Bool { availableVersion != nil }
 
@@ -68,10 +69,17 @@ final class UpdateManager: ObservableObject {
                     }
                     self.isChecking = false
                     self.checkTask = nil
+                    if self.installAfterCheck {
+                        self.installAfterCheck = false
+                        if self.updateAvailable {
+                            self.installAvailableUpdate()
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {
                     guard let self else { return }
+                    self.installAfterCheck = false
                     if !silent { self.statusMessage = error.localizedDescription }
                     self.isChecking = false
                     self.checkTask = nil
@@ -81,7 +89,21 @@ final class UpdateManager: ObservableObject {
     }
 
     func installAvailableUpdate() {
-        guard let release = latestRelease, updateAvailable, installTask == nil else { return }
+        guard installTask == nil else { return }
+        if let release = latestRelease, updateAvailable {
+            beginInstall(release: release)
+            return
+        }
+        installAfterCheck = true
+        if checkTask == nil {
+            checkForUpdates()
+        } else {
+            statusMessage = "Finishing the update check…"
+        }
+    }
+
+    private func beginInstall(release: GitHubRelease) {
+        guard installTask == nil, updateAvailable else { return }
         isInstalling = true
         statusMessage = "Downloading version \(availableVersion ?? release.tag_name)…"
 
