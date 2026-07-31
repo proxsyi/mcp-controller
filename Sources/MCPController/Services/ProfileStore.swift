@@ -17,7 +17,12 @@ final class ProfileStore: @unchecked Sendable {
     }
 
     func load() throws -> [ServerProfile] {
+        let directory = configurationURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: directory.path) {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
         guard fileManager.fileExists(atPath: configurationURL.path) else { return [] }
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configurationURL.path)
         let data = try Data(contentsOf: configurationURL)
         return try JSONDecoder().decode([ServerProfile].self, from: data)
     }
@@ -42,8 +47,10 @@ final class ProfileStore: @unchecked Sendable {
     private func writeProfiles(_ profiles: [ServerProfile]) throws {
         let directory = configurationURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(profiles).write(to: configurationURL, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configurationURL.path)
     }
 }
