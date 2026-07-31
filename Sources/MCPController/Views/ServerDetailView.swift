@@ -27,6 +27,7 @@ struct ServerDetailView: View {
     @State private var pulse = false
     @State private var showingRestartConfirmation = false
     @State private var isSynchronizingDraft = false
+    @State private var restartRequiredChangesPending = false
 
     private let settingColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -330,7 +331,7 @@ struct ServerDetailView: View {
 
     private func handlePhaseChange(_ phase: RuntimePhase) {
         updatePulse(for: phase)
-        if !phase.isActive, draft != savedProfile {
+        if !phase.isActive, !restartRequiredChangesPending, draft != savedProfile {
             model.update(draft)
             savedProfile = draft
         }
@@ -349,10 +350,15 @@ struct ServerDetailView: View {
             guard let split = line.firstIndex(of: "=") else { return }
             values[String(line[..<split])] = String(line[line.index(after: split)...])
         }
+        if phase.isActive, draft != savedProfile {
+            restartRequiredChangesPending = true
+            return
+        }
         guard draft != savedProfile else { return }
         if !phase.isActive {
             model.update(draft)
             savedProfile = draft
+            restartRequiredChangesPending = false
         }
     }
 
@@ -360,6 +366,7 @@ struct ServerDetailView: View {
         let original = savedProfile
         let updated = draft
         showingRestartConfirmation = false
+        restartRequiredChangesPending = false
         model.update(updated)
         savedProfile = updated
         model.stop(original) { [weak model] in model?.start(updated) }
@@ -367,6 +374,7 @@ struct ServerDetailView: View {
 
     private func revertDraft() {
         showingRestartConfirmation = false
+        restartRequiredChangesPending = false
         isSynchronizingDraft = true
         draft = savedProfile
         argumentsText = savedProfile.arguments.joined(separator: "\n")
@@ -378,6 +386,7 @@ struct ServerDetailView: View {
     }
 
     private func syncLiveProfile(_ profile: ServerProfile) {
+        restartRequiredChangesPending = false
         isSynchronizingDraft = true
         draft = profile
         savedProfile = profile
