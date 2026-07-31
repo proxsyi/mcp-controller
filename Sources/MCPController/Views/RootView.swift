@@ -33,18 +33,28 @@ struct RootView: View {
                     }
                 } header: { sidebarSummary }
             }
-            .navigationTitle("MCP Servers")
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Find a server")
+            .navigationTitle("MCP Controller")
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
             .overlay {
-                if model.serverProfiles.isEmpty {
+                if model.profiles.isEmpty {
                     ContentUnavailableView {
-                        Label("No servers yet", systemImage: "server.rack")
+                        Label("No items yet", systemImage: "server.rack")
                     } description: {
-                        Text("Add an MCP server, then start it when you need it.")
+                        Text("Add an MCP server, heading, or spacer to start organizing this controller.")
                     } actions: {
                         Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
                     }
-                } else if filteredProfiles.isEmpty { ContentUnavailableView.search(text: searchText) }
+                } else if model.serverProfiles.isEmpty {
+                    ContentUnavailableView {
+                        Label("No servers yet", systemImage: "server.rack")
+                    } description: {
+                        Text("You only have organization items right now. Add an MCP server when you’re ready to run one.")
+                    } actions: {
+                        Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
+                    }
+                } else if filteredProfiles.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
             }
         } detail: {
             ZStack {
@@ -56,7 +66,7 @@ struct RootView: View {
                         OrganizationItemDetailView(profile: profile)
                     }
                 } else {
-                    ContentUnavailableView("Select a server", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure or control it."))
+                    ContentUnavailableView("Select an item", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure it, or choose a heading or spacer to review its placement."))
                 }
             }.animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
