@@ -27,6 +27,8 @@ final class AppModel: ObservableObject {
     private var stopCompletions: [UUID: [() -> Void]] = [:]
     private var tailscaleDNSRefreshes: Set<String> = []
     private var persistTask: Task<Void, Never>?
+    private var recoveryAttempts: [UUID: Int] = [:]
+    private var recoveryTasks: [UUID: Task<Void, Never>] = [:]
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
@@ -48,6 +50,14 @@ final class AppModel: ObservableObject {
             }
         }
         gatewayManager.onLog = { [weak self] profileID, message in Task { @MainActor in self?.appendLog(profileID, message) } }
+        gatewayManager.onFailure = { [weak self] profileID, message in
+            Task { @MainActor in
+                guard let self, let profile = self.profiles.first(where: { $0.id == profileID }), self.phase(for: profileID).isActive else { return }
+                self.phases[profileID] = .failed(message)
+                self.appendLog(profileID, message + "\n")
+                self.scheduleRecovery(for: profile)
+            }
+        }
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
@@ -301,8 +311,9 @@ final class AppModel: ObservableObject {
                 } else if case .failed = self.phase(for: profile.id) {
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
                 } else {
-                    self.phases[profile.id] = process.terminationStatus == 0 ? .stopped : .failed("Exited with code \(process.terminationStatus)")
+                    self.phases[profile.id] = .failed("Exited with code \(process.terminationStatus)")
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
+                    self.scheduleRecovery(for: profile)
                 }
                 self.completeStops(for: profile.id)
             }
@@ -358,6 +369,8 @@ final class AppModel: ObservableObject {
             try await Task.detached(priority: .utility) { [gatewayManager] in try gatewayManager.start(profile: profile) }.value
             try await enableExposure(profile)
             guard processes[profile.id]?.isRunning == true, phase(for: profile.id) == .starting else { return }
+            recoveryAttempts[profile.id] = 0
+            recoveryTasks.removeValue(forKey: profile.id)?.cancel()
             phases[profile.id] = .running; appendLog(profile.id, exposureMessage(for: profile))
         } catch {
             gatewayManager.stop(profileID: profile.id)
@@ -367,6 +380,8 @@ final class AppModel: ObservableObject {
     }
 
     func stop(_ profile: ServerProfile, completion: (() -> Void)? = nil) {
+        recoveryTasks.removeValue(forKey: profile.id)?.cancel()
+        recoveryAttempts[profile.id] = 0
         if let completion { stopCompletions[profile.id, default: []].append(completion) }
         guard phase(for: profile.id).isActive || adoptedListeners[profile.id] != nil else {
             phases[profile.id] = .stopped; completeStops(for: profile.id); return
@@ -413,6 +428,20 @@ final class AppModel: ObservableObject {
             phases[profile.id] = .stopped
             appendLog(profile.id, "Adopted PID \(listener.pid) had already exited; continuing shutdown.\n")
             completeStops(for: profile.id)
+        }
+    }
+
+    private func scheduleRecovery(for profile: ServerProfile) {
+        let attempt = recoveryAttempts[profile.id, default: 0]
+        guard let delay = RuntimeRecoveryPolicy.retryDelay(autoStart: profile.autoStart, wasUserStopped: false, attempt: attempt) else { return }
+        recoveryAttempts[profile.id] = attempt + 1
+        recoveryTasks[profile.id]?.cancel()
+        appendLog(profile.id, "Retrying persistent server in \(Int(delay)) second(s) (attempt \(attempt + 1)/\(RuntimeRecoveryPolicy.maximumAttempts)).\n")
+        recoveryTasks[profile.id] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled, self.phase(for: profile.id).isFailed, let current = self.profiles.first(where: { $0.id == profile.id }), current.autoStart else { return }
+            self.phases[profile.id] = .stopped
+            self.start(current)
         }
     }
 

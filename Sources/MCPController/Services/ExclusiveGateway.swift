@@ -69,9 +69,11 @@ struct ExclusiveLeaseArbiter: Sendable {
 final class ExclusiveGatewayManager: @unchecked Sendable {
     typealias StateHandler = @Sendable (UUID, GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     typealias LogHandler = @Sendable (UUID, String) -> Void
+    typealias FailureHandler = @Sendable (UUID, String) -> Void
 
     var onStateChange: StateHandler?
     var onLog: LogHandler?
+    var onFailure: FailureHandler?
 
     private let lock = NSLock()
     private var gateways: [UUID: ExclusiveGateway] = [:]
@@ -89,6 +91,9 @@ final class ExclusiveGatewayManager: @unchecked Sendable {
             },
             logHandler: { [weak self] message in
                 self?.onLog?(profile.id, message)
+            },
+            failureHandler: { [weak self] message in
+                self?.onFailure?(profile.id, message)
             }
         )
         lock.lock()
@@ -147,6 +152,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
     private let listener: NWListener
     private let stateHandler: @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     private let logHandler: @Sendable (String) -> Void
+    private let failureHandler: @Sendable (String) -> Void
     private var arbiter: ExclusiveLeaseArbiter
     private var bridgedProtocolVersions: [String: String] = [:]
     private var upstreamCapabilities: [String: Set<String>] = [:]
@@ -154,11 +160,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
     init(
         profile: ServerProfile,
         stateHandler: @escaping @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void,
-        logHandler: @escaping @Sendable (String) -> Void
+        logHandler: @escaping @Sendable (String) -> Void,
+        failureHandler: @escaping @Sendable (String) -> Void
     ) throws {
         self.profile = profile
         self.stateHandler = stateHandler
         self.logHandler = logHandler
+        self.failureHandler = failureHandler
         self.arbiter = ExclusiveLeaseArbiter(timeout: TimeInterval(profile.leaseTimeoutSeconds))
         self.queue = DispatchQueue(label: "com.versyi.mcp-controller.gateway.\(profile.id.uuidString)")
         self.queue.setSpecific(key: queueKey, value: ())
@@ -177,7 +185,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
             case .ready:
                 self.logHandler("Exclusive gateway listening on 127.0.0.1:\(self.profile.gatewayPort).\n")
             case .failed(let error):
-                self.logHandler("Exclusive gateway failed: \(error.localizedDescription)\n")
+                let message = "Exclusive gateway failed: \(error.localizedDescription)"
+                self.logHandler(message + "\n")
+                self.failureHandler(message)
             default:
                 break
             }
