@@ -23,6 +23,13 @@ enum TailscaleCommandBuilder {
         }
     }
 
+    static func allRemoveArgumentSets(for profile: ServerProfile, mountPath: String) -> [[String]] {
+        [
+            ["serve", "--https=\(profile.publicPort)", "--set-path=\(mountPath)", "off"],
+            ["funnel", "--https=\(profile.publicPort)", "--set-path=\(mountPath)", "off"]
+        ]
+    }
+
     static func disableArguments(for profile: ServerProfile) -> [String]? {
         nil
     }

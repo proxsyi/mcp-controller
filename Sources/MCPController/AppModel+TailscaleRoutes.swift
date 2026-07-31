@@ -106,21 +106,21 @@ extension AppModel {
     }
 
     private func removeManagedRoutes(for profile: ServerProfile) -> [String] {
-        guard profile.exposureMode != .disabled else { return [] }
         let paths = managedRoutePaths(for: profile)
         var failures: [String] = []
         for path in paths {
-            let arguments = TailscaleCommandBuilder.removeArguments(for: profile, mountPath: path)
-            do {
-                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
-                let message = (result.error + result.output).lowercased()
-                if result.exitCode != 0 &&
-                    !message.contains("handler does not exist") &&
-                    !message.contains("failed to remove web serve") {
-                    failures.append(result.error.isEmpty ? result.output : result.error)
+            for arguments in TailscaleCommandBuilder.allRemoveArgumentSets(for: profile, mountPath: path) {
+                do {
+                    let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                    let message = (result.error + result.output).lowercased()
+                    if result.exitCode != 0 &&
+                        !message.contains("handler does not exist") &&
+                        !message.contains("failed to remove web serve") {
+                        failures.append(result.error.isEmpty ? result.output : result.error)
+                    }
+                } catch {
+                    failures.append(error.localizedDescription)
                 }
-            } catch {
-                failures.append(error.localizedDescription)
             }
         }
         return failures
