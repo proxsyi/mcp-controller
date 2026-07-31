@@ -86,7 +86,7 @@ def dns_name(profiles: list[dict]) -> str:
 def public_base_url(profiles: list[dict], provided: str | None) -> str:
     if provided:
         return provided.rstrip("/")
-    return f"https://{dns_name(profiles)}"
+    return "https://" + dns_name(profiles)
 
 def mount_path(profile: dict) -> str:
     value = profile.get("mountPath") or "/"

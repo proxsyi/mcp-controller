@@ -224,7 +224,7 @@ def main():
         if dns_name and profile.get("tailscaleRouteEnabled") and profile.get("exposureMode") != "disabled":
             port = int(profile.get("publicPort", 443))
             port_suffix = "" if port == 443 else f":{port}"
-            public_base = f"https://{dns_name}{port_suffix}" + (mount if mount != "/" else "")
+            public_base = "https://" + dns_name + port_suffix + (mount if mount != "/" else "")
             probe("public displayed/base URL", public_base, token, timeout=15)
             probe("public URL plus endpoint", join_path(public_base, endpoint), token, timeout=15)
 

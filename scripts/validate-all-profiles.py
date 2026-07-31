@@ -95,7 +95,7 @@ def public_url(dns: str, profile: dict) -> str:
     mount_path = profile.get("mountPath") or "/"
     if not mount_path.startswith("/"):
         mount_path = "/" + mount_path
-    return f"https://{dns}{mount_path}"
+    return "https://" + dns + mount_path
 
 def public_surface_enabled(profile: dict) -> bool:
     return bool(profile.get("tailscaleRouteEnabled")) and profile.get("exposureMode") != "disabled"

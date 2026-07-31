@@ -55,7 +55,7 @@ if not mount_path.startswith("/"):
     mount_path = "/" + mount_path
 out = {
     "name": profile.get("name", ""),
-    "url": f"https://{dns_name}{mount_path}",
+    "url": "https://" + dns_name + mount_path,
     "token": credential["token"],
     "compatibility": profile.get("remoteClientCompatibilityEnabled"),
     "gatewayPort": profile.get("gatewayPort"),
