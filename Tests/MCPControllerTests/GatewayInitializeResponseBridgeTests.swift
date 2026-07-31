@@ -5,16 +5,24 @@ import XCTest
 final class GatewayInitializeResponseBridgeTests: XCTestCase {
     private var initialized: String { GatewayOptionalDiscoveryFallback.initializedSessionMarker }
 
-    func testRewritesClientFacingVersionAndCapturesUpstreamSession() {
+    func testRewritesOpenChunkedInitializeStreamWithoutCorruptingFraming() throws {
         let bridge = GatewayInitializeResponseBridge(requestedVersion: "2025-11-25")
-        let response = Data(("HTTP/1.1 200 OK\r\nMcp-Session-Id: abc-123\r\nTransfer-Encoding: chunked\r\n\r\n" +
-            "data: {\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2024-11-05\"}}\r\n\r\n").utf8)
-        let result = bridge.consume(response)
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.sessionID, "abc-123")
-        XCTAssertEqual(result?.upstreamVersion, "2024-11-05")
-        XCTAssertEqual(result?.upstreamCapabilities, Set([initialized]))
-        XCTAssertTrue(String(decoding: result!.data, as: UTF8.self).contains("\"protocolVersion\":\"2025-11-25\""))
+        let body = Data("data: {\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2024-11-05\"}}\r\n\r\n".utf8)
+        var response = Data("HTTP/1.1 200 OK\r\nMcp-Session-Id: abc-123\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)
+        response.append(HTTPChunkedBodyEncoder.encode(body))
+
+        let result = try XCTUnwrap(bridge.consume(response))
+        XCTAssertEqual(result.sessionID, "abc-123")
+        XCTAssertEqual(result.upstreamVersion, "2024-11-05")
+        XCTAssertEqual(result.upstreamCapabilities, Set([initialized]))
+        XCTAssertFalse(result.responseComplete)
+
+        let separator = Data("\r\n\r\n".utf8)
+        let headerRange = try XCTUnwrap(result.data.range(of: separator))
+        let encodedBody = result.data.subdata(in: headerRange.upperBound..<result.data.count)
+        let transformed = try XCTUnwrap(HTTPChunkedBodyDecoder.decodeAvailableChunks(encodedBody))
+        XCTAssertEqual(transformed.bytesConsumed, encodedBody.count)
+        XCTAssertTrue(String(decoding: transformed.body, as: UTF8.self).contains("\"protocolVersion\":\"2025-11-25\""))
     }
 
     func testHandlesVersionMarkerSplitAcrossPackets() {

@@ -33,8 +33,14 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
                 output.append(Data("0\r\n\r\n".utf8))
                 return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: true)
             }
-            if let raw = transform(buffer) {
-                return resolve(raw.body, sessionID: sessionID(in: headerText), upstream: raw.upstream, capabilities: raw.capabilities, responseComplete: false)
+            if let available = HTTPChunkedBodyDecoder.decodeAvailableChunks(encodedBody),
+               let transformed = transform(available.body) {
+                var output = header
+                output.append(HTTPChunkedBodyEncoder.encode(transformed.body))
+                if available.bytesConsumed < encodedBody.count {
+                    output.append(encodedBody.subdata(in: available.bytesConsumed..<encodedBody.count))
+                }
+                return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: false)
             }
             return isFinal || buffer.count > 1_048_576 ? finish() : nil
         }
