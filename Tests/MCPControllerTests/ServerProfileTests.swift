@@ -27,4 +27,25 @@ final class ServerProfileTests: XCTestCase {
         profile.publicRequestTimeoutSeconds = 300
         XCTAssertFalse(profile.validationErrors().contains { $0.contains("Public request timeout") })
     }
+
+    func testStartupDiagnosticsRedactSecretArgumentsAndEnvironmentValues() {
+        var profile = ServerProfile()
+        profile.arguments = ["--transport", "http", "--token", "argument-secret", "--api-key=inline-secret"]
+        profile.environment = ["API_TOKEN": "environment-secret", "LOG_LEVEL": "debug"]
+
+        let summary = profile.startupDiagnosticSummary
+
+        XCTAssertFalse(summary.contains("argument-secret"))
+        XCTAssertFalse(summary.contains("inline-secret"))
+        XCTAssertFalse(summary.contains("environment-secret"))
+        XCTAssertTrue(summary.contains("--token | <redacted>"))
+        XCTAssertTrue(summary.contains("--api-key=<redacted>"))
+        XCTAssertTrue(summary.contains("LOG_LEVEL=debug"))
+    }
+
+    func testStartupDiagnosticsDescribeEmptyOriginsAsDenied() {
+        var profile = ServerProfile()
+        profile.allowedOrigins = []
+        XCTAssertTrue(profile.startupDiagnosticSummary.contains("Allowed origins: (none; browser origins denied)"))
+    }
 }
