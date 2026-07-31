@@ -2,7 +2,7 @@ import Foundation
 
 extension AppModel {
     func nextAvailableLocalPort(startingAt start: Int = 4100) -> Int {
-        let used = Set(serverProfiles.map(\.localPort))
+        let used = Set(serverProfiles.map(\.localPort) + serverProfiles.map(\.gatewayPort))
         return nextAvailablePort(startingAt: start, used: used, defaultStart: 4100)
     }
 

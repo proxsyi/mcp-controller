@@ -243,8 +243,14 @@ final class AppModel: ObservableObject {
         guard profile.isServer, !phase(for: profile.id).isActive else { return }
         let errors = profile.validationErrors()
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
-        if let conflict = serverProfiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
-            fail(profile, "\(conflict.name) is already using MCP port \(profile.localPort)."); return
+        if let conflict = serverProfiles.first(where: {
+            $0.id != profile.id &&
+            phase(for: $0.id).isActive && (
+                $0.localPort == profile.localPort ||
+                ($0.exclusiveGatewayEnabled && $0.gatewayPort == profile.localPort)
+            )
+        }) {
+            fail(profile, "\(conflict.name) is already using port \(profile.localPort) for its MCP server or gateway."); return
         }
         if profile.exclusiveGatewayEnabled,
            let conflict = serverProfiles.first(where: {

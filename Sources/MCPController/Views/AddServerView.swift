@@ -18,8 +18,9 @@ struct AddServerView: View {
     }
     private var canAdd: Bool {
         !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !profile.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedLocalPort != nil &&
-        !model.serverProfiles.contains(where: { $0.localPort == resolvedLocalPort })
+        !profile.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        resolvedLocalPort != nil &&
+        !model.serverProfiles.contains(where: { $0.localPort == resolvedLocalPort || $0.gatewayPort == resolvedLocalPort })
     }
 
     var body: some View {
@@ -47,7 +48,7 @@ struct AddServerView: View {
                                 TextField(String(suggestedPort), text: $localPortText).textFieldStyle(.roundedBorder).frame(width: 110)
                                     .onChange(of: localPortText) { _, value in localPortText = value.filter(\.isNumber) }
                             }
-                            Text(localPortText.isEmpty ? "Suggested available port: \(suggestedPort)" : "Use port 1024 or higher. The server will listen on this Mac only until you configure exposure.")
+                            Text(localPortText.isEmpty ? "Suggested available port: \(suggestedPort)" : "Use a port that is not already assigned to another server or gateway.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
