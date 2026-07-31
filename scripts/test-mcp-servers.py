@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, json, subprocess, time, urllib.error, urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 PROFILE_SPECS = {
     "DDF597AD-1EC6-4B23-BBF8-4EF2F76E077C": {
@@ -102,9 +103,13 @@ def mount_path(profile: dict) -> str:
     return value[:-1] if value.endswith("/") else value
 
 def public_url(base_url: str, profile: dict) -> str:
+    parsed = urlsplit(base_url)
+    mount = mount_path(profile)
+    if parsed.port is not None:
+        return base_url + mount
     public_port = int(profile.get("publicPort", 443) or 443)
     port_suffix = "" if public_port == 443 else f":{public_port}"
-    return base_url + port_suffix + mount_path(profile)
+    return base_url + port_suffix + mount
 
 def main() -> int:
     ap = argparse.ArgumentParser()
