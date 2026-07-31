@@ -197,7 +197,7 @@ struct ExposureSettingsView: View {
                     if updated.gatewayPort == updated.localPort {
                         updated.gatewayPort = model.nextAvailableGatewayPort(startingAt: updated.gatewayPort + 1)
                     }
-                    if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+                    if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
                     if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
                     profile = updated
                     if !updated.tailscaleRouteEnabled { applyRemoteAccess(enabled: true) }
@@ -213,7 +213,7 @@ struct ExposureSettingsView: View {
         if enabled {
             var updated = profile
             updated.tailscaleRouteEnabled = true
-            if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+            if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
             if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
             updated.tailscalePath = TailscaleRouteService.defaultCLIPath
             if phase.isActive {
