@@ -165,7 +165,7 @@ extension AppModel {
             }
             onShowSettings?()
             return .ok("Opened Settings.")
-        case "quit": shutdownForApplicationQuit(); NSApplication.shared.terminate(nil); return .ok("Quitting MCP Controller.")
+        case "quit": NSApplication.shared.terminate(nil); return .ok("Quitting MCP Controller.")
         default: return .error("Unknown action: \(request.action)")
         }
     }
