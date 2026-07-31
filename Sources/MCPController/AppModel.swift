@@ -3,6 +3,8 @@ import Darwin
 
 @MainActor
 final class AppModel: ObservableObject {
+    static var shared: AppModel?
+
     @Published var profiles: [ServerProfile] = []
     @Published var selectedID: UUID?
     @Published private(set) var phases: [UUID: RuntimePhase] = [:]
@@ -35,6 +37,7 @@ final class AppModel: ObservableObject {
     var activeLeaseCount: Int { gatewayLeases.count }
 
     init() {
+        Self.shared = self
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
             Task { @MainActor in
                 if let active { self?.gatewayLeases[profileID] = active }
