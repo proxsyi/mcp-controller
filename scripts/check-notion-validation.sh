@@ -4,6 +4,7 @@ set -euo pipefail
 CONFIG="$HOME/Library/Application Support/MCP Controller/servers.json"
 REPORT="$HOME/Desktop/notion-mcp-validation-report.txt"
 WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
+ORIGIN="https://www.notion.so"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
@@ -179,7 +180,7 @@ fi
 request options \
   -X OPTIONS \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Origin: https://www.notion.so" \
+  -H "Origin: $ORIGIN" \
   -H "Access-Control-Request-Method: POST" \
   -H "Access-Control-Request-Headers: authorization,content-type,mcp-session-id,mcp-protocol-version" \
   "$URL"
