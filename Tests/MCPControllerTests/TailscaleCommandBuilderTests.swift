@@ -27,6 +27,19 @@ final class TailscaleCommandBuilderTests: XCTestCase {
         XCTAssertEqual(TailscaleCommandBuilder.removeArguments(for: profile), ["funnel", "--https=443", "--set-path=/mcp/desktop", "off"])
     }
 
+    func testManagedCleanupIncludesCurrentAndLegacyMCPPathsForBothRouteModes() {
+        var profile = ServerProfile(); profile.publicPort = 8443; profile.mountPath = "/mcp/desktop"; profile.exposureMode = .funnel
+        XCTAssertEqual(
+            TailscaleCommandBuilder.allManagedRemoveArgumentSets(for: profile),
+            [
+                ["serve", "--https=8443", "--set-path=/mcp/desktop", "off"],
+                ["funnel", "--https=8443", "--set-path=/mcp/desktop", "off"],
+                ["serve", "--https=8443", "--set-path=/mcp/desktop/mcp", "off"],
+                ["funnel", "--https=8443", "--set-path=/mcp/desktop/mcp", "off"]
+            ]
+        )
+    }
+
     func testStoppingServerDoesNotRemoveIndependentRoute() {
         var profile = ServerProfile(); profile.exposureMode = .funnel; profile.tailscaleRouteEnabled = true
         XCTAssertNil(TailscaleCommandBuilder.disableArguments(for: profile))

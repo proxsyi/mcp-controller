@@ -30,6 +30,16 @@ enum TailscaleCommandBuilder {
         ]
     }
 
+    static func allManagedRemoveArgumentSets(for profile: ServerProfile) -> [[String]] {
+        let current = profile.normalizedMountPath
+        var paths = [current]
+        let legacyMCPPath = current.hasSuffix("/mcp") ? nil : (current == "/" ? "/mcp" : current + "/mcp")
+        if let legacyMCPPath, !paths.contains(legacyMCPPath) {
+            paths.append(legacyMCPPath)
+        }
+        return paths.flatMap { allRemoveArgumentSets(for: profile, mountPath: $0) }
+    }
+
     static func disableArguments(for profile: ServerProfile) -> [String]? {
         nil
     }

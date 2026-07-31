@@ -8,7 +8,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         guard !isTerminating else { return .terminateLater }
         isTerminating = true
         Task { @MainActor in
-            AppModel.shared?.shutdownForApplicationQuit()
+            await AppModel.shared?.shutdownForApplicationQuit()
             sender.reply(toApplicationShouldTerminate: true)
             self.isTerminating = false
         }
