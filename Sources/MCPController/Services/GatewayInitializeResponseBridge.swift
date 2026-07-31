@@ -99,12 +99,13 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
               var result = object["result"] as? [String: Any],
               result["protocolVersion"] is String else { return nil }
         var capabilities = result["capabilities"] as? [String: Any] ?? [:]
+        let upstreamCapabilities = Set(capabilities.keys)
         if capabilities["prompts"] == nil { capabilities["prompts"] = [:] }
         if capabilities["resources"] == nil { capabilities["resources"] = [:] }
         result["capabilities"] = capabilities
         object["result"] = result
         guard let normalizedData = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return (String(decoding: normalizedData, as: UTF8.self), Set(capabilities.keys))
+        return (String(decoding: normalizedData, as: UTF8.self), upstreamCapabilities)
     }
 
     private func extractCapabilities(from text: String) -> Set<String>? {
