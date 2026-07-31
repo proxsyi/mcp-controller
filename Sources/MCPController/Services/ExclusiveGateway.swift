@@ -325,8 +325,16 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         if request.method == "GET" {
             if let _ = request.headers["mcp-session-id"] {
-                guard arbiter.active != nil else {
+                guard let credential = authorizedCredential(for: request) else {
+                    sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+                    return
+                }
+                guard let activeLease = arbiter.active else {
                     sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+                    return
+                }
+                guard activeLease.clientID == credential.id.uuidString else {
+                    sendError(connection, status: 403, message: "This session belongs to a different authorized AI client.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                     return
                 }
                 publishState()
@@ -629,11 +637,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
             var combinedBuffer = upstreamResponseBuffer
             if let data, !data.isEmpty { combinedBuffer.append(data) }
 
+            let streamEnded = isComplete || error != nil
             var outgoing: Data?
             var responseComplete = false
             if let data, !data.isEmpty {
                 if let initializeBridge {
-                    let result = initializeBridge.consume(data, isFinal: isComplete || error != nil)
+                    let result = initializeBridge.consume(data, isFinal: streamEnded)
                     outgoing = result?.data
                     responseComplete = result?.responseComplete == true
                     if let sessionID = result?.sessionID {
@@ -647,16 +656,16 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     }
                 } else {
                     outgoing = data
-                    responseComplete = HTTPResponseFraming.isComplete(combinedBuffer)
+                    responseComplete = HTTPResponseFraming.isComplete(combinedBuffer, closed: streamEnded)
                 }
-            } else if let initializeBridge, isComplete || error != nil {
+            } else if let initializeBridge, streamEnded {
                 let result = initializeBridge.finish()
                 outgoing = result?.data
                 responseComplete = result?.responseComplete == true
             }
 
             let closeAfterResponse = responseComplete
-            if (closeAfterResponse || isComplete || error != nil), !deadline.claim() {
+            if (closeAfterResponse || streamEnded), !deadline.claim() {
                 upstream.cancel()
                 return
             }
@@ -668,7 +677,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         _ = deadline.claim()
                         upstream.cancel()
                         client.cancel()
-                    } else if closeAfterResponse || isComplete || error != nil {
+                    } else if closeAfterResponse || streamEnded {
                         upstream.cancel()
                         self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
                     } else {
@@ -682,7 +691,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         )
                     }
                 })
-            } else if isComplete || error != nil {
+            } else if streamEnded {
                 upstream.cancel()
                 self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
             } else {
@@ -953,7 +962,7 @@ private struct HTTPRequest {
 }
 
 private enum HTTPResponseFraming {
-    static func isComplete(_ data: Data) -> Bool {
+    static func isComplete(_ data: Data, closed: Bool = false) -> Bool {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerRange = data.range(of: separator), let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else {
             return false
@@ -962,12 +971,14 @@ private enum HTTPResponseFraming {
         let headers = headerText.components(separatedBy: "\r\n")
         var transferEncoding: String?
         var contentLength: Int?
+        var connectionHeader: String?
         for line in headers.dropFirst() {
             guard let split = line.firstIndex(of: ":") else { continue }
             let name = line[..<split].trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: split)...].trimmingCharacters(in: .whitespaces)
             if name == "transfer-encoding" { transferEncoding = value.lowercased() }
             if name == "content-length" { contentLength = Int(value) }
+            if name == "connection" { connectionHeader = value.lowercased() }
         }
         if transferEncoding?.contains("chunked") == true {
             let encodedBody = data.subdata(in: bodyStart..<data.endIndex)
@@ -975,7 +986,8 @@ private enum HTTPResponseFraming {
             return encodedBody.count >= decoded.bytesConsumed
         }
         if let contentLength { return data.count >= bodyStart + contentLength }
-        return false
+        if closed { return true }
+        return connectionHeader?.contains("close") == true && closed
     }
 }
 
