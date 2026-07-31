@@ -40,11 +40,11 @@ final class StatusBarController: NSObject, ObservableObject {
     private func updateButton(using model: AppModel) {
         guard let statusItem, let button = statusItem.button else { return }
         let count = model.runningCount
-        let activeCount = model.serverProfiles.filter { model.phase(for: $0.id).isActive }.count
+        let activeCount = model.activeCount
         button.image = NSImage(systemSymbolName: count > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
         button.imagePosition = .imageLeading
+        button.title = ""
         button.attributedTitle = badgeTitle(count: count)
-        button.title = count > 0 ? String(count) : ""
         button.toolTip = tooltip(runningCount: count, activeCount: activeCount, failedCount: model.failedCount)
         statusItem.length = NSStatusItem.variableLength
     }
