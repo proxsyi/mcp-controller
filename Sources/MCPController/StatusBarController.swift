@@ -44,7 +44,6 @@ final class StatusBarController: NSObject, ObservableObject {
         let hasLiveActivity = count > 0 || activeCount > 0
         button.image = NSImage(systemSymbolName: hasLiveActivity ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
         button.imagePosition = .imageLeading
-        button.attributedTitle = NSAttributedString(string: "")
         button.title = count > 0 ? " \(count)" : ""
         button.toolTip = tooltip(runningCount: count, activeCount: activeCount, failedCount: model.failedCount)
         statusItem.length = NSStatusItem.variableLength
