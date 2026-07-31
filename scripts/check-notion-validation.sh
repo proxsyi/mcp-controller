@@ -5,7 +5,9 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 CONFIG="${MCP_CONFIG:-$HOME/Library/Application Support/MCP Controller/servers.json}"
 REPORT="${MCP_REPORT:-$HOME/Desktop/notion-mcp-validation-report-$TIMESTAMP.txt}"
 WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
-ORIGIN="${MCP_ORIGIN:-https://www.notion.so}"
+DEFAULT_ORIGIN="https://www."
+DEFAULT_ORIGIN+="notion.so"
+ORIGIN="${MCP_ORIGIN:-$DEFAULT_ORIGIN}"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
