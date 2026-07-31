@@ -140,8 +140,8 @@ struct ExposureSettingsView: View {
     }
 
     private var publicAddress: String? {
-        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled, !dnsName.isEmpty else { return nil }
-        return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
+        return model.remoteURL(for: profile)
     }
 
     private var audienceLabel: String {
@@ -215,7 +215,9 @@ struct ExposureSettingsView: View {
             updated.tailscaleRouteEnabled = true
             if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
             if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
-            updated.tailscalePath = TailscaleRouteService.defaultCLIPath
+            if updated.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: updated.tailscalePath) {
+                updated.tailscalePath = TailscaleRouteService.defaultCLIPath
+            }
             if phase.isActive {
                 profile = updated
             } else if model.tailscaleFunnelRunning {
