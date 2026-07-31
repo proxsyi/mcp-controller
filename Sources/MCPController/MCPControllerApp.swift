@@ -7,6 +7,7 @@ struct MCPControllerApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var updates = UpdateManager()
     @StateObject private var settingsWindow = SettingsWindowCoordinator()
+    @StateObject private var statusBar = StatusBarController()
 
     var body: some Scene {
         WindowGroup("MCP Controller") {
@@ -17,6 +18,7 @@ struct MCPControllerApp: App {
                 .frame(minWidth: 980, minHeight: 640)
                 .onAppear {
                     appDelegate.model = model
+                    statusBar.install(model: model)
                     model.onShowSettings = nil
                     model.onCheckForUpdates = {
                         updates.checkForUpdates()
@@ -41,10 +43,5 @@ struct MCPControllerApp: App {
                 .environmentObject(updates)
                 .background(SettingsWindowProbe { settingsWindow.register($0) })
         }
-
-        MenuBarExtra("\(model.runningCount)", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
-            MenuBarView().environmentObject(model)
-        }
-        .menuBarExtraStyle(.window)
     }
 }
