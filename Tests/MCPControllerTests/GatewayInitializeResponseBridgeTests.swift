@@ -38,15 +38,23 @@ final class GatewayInitializeResponseBridgeTests: XCTestCase {
         XCTAssertTrue(String(decoding: result!.data, as: UTF8.self).contains("\"resources\":{}"))
     }
 
-    func testInjectsCompatibilityCapabilitiesIntoRawInitializeJSONWithoutTreatingThemAsUpstream() {
+    func testInjectsCompatibilityCapabilitiesIntoRawInitializeJSONWithoutTreatingThemAsUpstream() throws {
         let bridge = GatewayInitializeResponseBridge(requestedVersion: "2025-11-25")
         let body = "{\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{}}}}"
         let response = Data(("HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\n\r\n" + body).utf8)
-        let result = bridge.consume(response)
-        XCTAssertEqual(result?.upstreamCapabilities, Set([initialized, "tools"]))
-        let text = String(decoding: result!.data, as: UTF8.self)
+        let result = try XCTUnwrap(bridge.consume(response))
+        XCTAssertEqual(result.upstreamCapabilities, Set([initialized, "tools"]))
+        let text = String(decoding: result.data, as: UTF8.self)
         XCTAssertTrue(text.contains("\"prompts\":{}"))
         XCTAssertTrue(text.contains("\"resources\":{}"))
+
+        let separator = Data("\r\n\r\n".utf8)
+        let headerRange = try XCTUnwrap(result.data.range(of: separator))
+        let headerText = String(decoding: result.data[..<headerRange.lowerBound], as: UTF8.self)
+        let declaredLength = headerText.components(separatedBy: "\r\n")
+            .first(where: { $0.lowercased().hasPrefix("content-length:") })
+            .flatMap { Int($0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)) }
+        XCTAssertEqual(declaredLength, result.data.count - headerRange.upperBound)
     }
 
     func testPassesThroughAfterInitialRewrite() {

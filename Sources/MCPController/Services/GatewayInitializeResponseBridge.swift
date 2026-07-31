@@ -41,7 +41,8 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
 
         if let length = contentLength(in: headerText), encodedBody.count < length { return isFinal ? finish() : nil }
         if let transformed = transform(encodedBody) {
-            var output = header; output.append(transformed.body)
+            var output = replacingContentLength(in: headerText, with: transformed.body.count)
+            output.append(transformed.body)
             return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: true)
         }
         return isFinal || buffer.count > 1_048_576 ? finish() : nil
@@ -123,6 +124,18 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
             return Set(capabilities.keys).union([GatewayOptionalDiscoveryFallback.initializedSessionMarker])
         }
         return nil
+    }
+
+    private func replacingContentLength(in headers: String, with length: Int) -> Data {
+        let lines = headers.components(separatedBy: "\r\n")
+        let updated = lines.map { line -> String in
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" else {
+                return line
+            }
+            return "Content-Length: \(length)"
+        }
+        return Data(updated.joined(separator: "\r\n").utf8)
     }
 
     private func sessionID(in headers: String) -> String? {
