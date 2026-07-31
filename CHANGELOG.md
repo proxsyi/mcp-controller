@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 — 2026-07-31
+
+### Fixed
+- Preserved real server gateway-port assignments when headings and spacers are present so organized profiles no longer break MCP connectivity on relaunch.
+- Updated the menu-bar dropdown to mirror the app organization, including headings, spacers, and the same server ordering.
+
 ## 0.8.2 — 2026-07-31
 
 ### Added
