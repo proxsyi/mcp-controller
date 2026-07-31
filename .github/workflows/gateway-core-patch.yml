@@ -1,0 +1,120 @@
+name: Apply gateway core patch
+
+on:
+  push:
+    branches:
+      - fix/menu-bar-count-and-stability
+    paths:
+      - .github/workflows/gateway-core-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/menu-bar-count-and-stability
+      - name: Apply exact gateway edits
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('Sources/MCPController/Services/ExclusiveGateway.swift')
+          text = path.read_text()
+
+          early_fallback = '''        if profile.remoteClientCompatibilityEnabled,
+             let sessionID = request.headers["mcp-session-id"],
+             let method = request.jsonRPCMethod,
+             let result = GatewayOptionalDiscoveryFallback.emptyResult(
+                  for: method,
+                  upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
+             ) {
+              logHandler("Compatibility fallback: returned an empty \\(method) result for Notion compatibility.\\n")
+              logHandler("Compatibility fallback response: method=\\(method), contentType=text/event-stream, session=\\(sessionID.prefix(8))….\\n")
+              sendCompatibilityResult(
+                  connection,
+                  requestID: request.jsonRPCID,
+                  sessionID: sessionID,
+                  protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                  result: result
+              )
+              return
+          }
+'''
+          if text.count(early_fallback) != 1:
+              raise SystemExit('Expected exactly one early fallback block')
+          text = text.replace(early_fallback, '')
+
+          allowed = '''        case .allowed:
+              publishState()
+              proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
+'''
+          authorized = '''        case .allowed:
+              publishState()
+              if profile.remoteClientCompatibilityEnabled,
+                 let sessionID = request.headers["mcp-session-id"],
+                 let method = request.jsonRPCMethod,
+                 let result = GatewayOptionalDiscoveryFallback.emptyResult(
+                      for: method,
+                      upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
+                 ) {
+                  logHandler("Compatibility fallback: returned an empty \\(method) result for Notion compatibility.\\n")
+                  logHandler("Compatibility fallback response: method=\\(method), contentType=text/event-stream, session=\\(sessionID.prefix(8))….\\n")
+                  sendCompatibilityResult(
+                      connection,
+                      requestID: request.jsonRPCID,
+                      sessionID: sessionID,
+                      protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                      result: result,
+                      keepConnectionOpen: true,
+                      bufferedData: bufferedData
+                  )
+                  return
+              }
+              proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
+'''
+          if text.count(allowed) != 1:
+              raise SystemExit('Expected exactly one authorized proxy block')
+          text = text.replace(allowed, authorized)
+
+          replacements = {
+              'sendCompatibilitySessionStream(connection)': 'sendCompatibilitySessionStream(connection, credential: credential)',
+              'private func sendCompatibilitySessionStream(_ connection: NWConnection) {': 'private func sendCompatibilitySessionStream(_ connection: NWConnection, credential: GatewayClientCredential) {',
+              'self.scheduleCompatibilitySessionKeepalive(connection)': 'self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)',
+              'private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection) {': 'private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection, credential: GatewayClientCredential) {',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one occurrence: {old}')
+              text = text.replace(old, new)
+
+          recursive = '''                } else {
+                      self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
+                  }
+'''
+          refreshed = '''                } else {
+                      guard self.arbiter.active?.clientID == credential.id.uuidString else {
+                          connection.cancel()
+                          return
+                      }
+                      _ = self.arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name)
+                      self.publishState()
+                      self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
+                  }
+'''
+          if text.count(recursive) != 1:
+              raise SystemExit('Expected exactly one keepalive recursion block')
+          text = text.replace(recursive, refreshed)
+
+          path.write_text(text)
+          PY
+      - name: Commit gateway patch
+        run: |
+          git config user.name proxsyi
+          git config user.email proxsyi@icloud.com
+          git add Sources/MCPController/Services/ExclusiveGateway.swift
+          git commit -m "fix(gateway): authorize fallbacks and refresh stream leases"
+          git push origin HEAD:fix/menu-bar-count-and-stability
