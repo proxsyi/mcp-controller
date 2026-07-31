@@ -6,7 +6,8 @@ extension ServerProfile {
         let directory = workingDirectory.isEmpty ? "(inherited)" : workingDirectory
         let environmentSummary = environment.keys.sorted().map { key in
             let lowered = key.lowercased()
-            let sensitive = ["password", "token", "secret", "api_key", "apikey"].contains { lowered.contains($0) }
+            let sensitiveMarkers = ["password", "token", "secret", "api_key", "apikey", "authorization", "cookie", "session", "bearer", "private"]
+            let sensitive = sensitiveMarkers.contains { lowered.contains($0) }
             return "  \(key)=\(sensitive ? "<redacted>" : environment[key] ?? "")"
         }.joined(separator: "\n")
         let origins = allowedOrigins.isEmpty ? "(any/unspecified)" : allowedOrigins.joined(separator: ", ")

@@ -23,12 +23,19 @@ class MCPClient:
 
     @staticmethod
     def parse(text: str) -> dict:
-        for line in text.splitlines():
-            if line.startswith("data:"):
-                data = line[5:].strip()
-                if data:
-                    return json.loads(data)
-        return json.loads(text) if text.strip() and not ("event:" in text or "data:" in text) else {}
+        normalized = text.replace("\r\n", "\n")
+        for block in normalized.split("\n\n"):
+            data_lines = [line[5:].lstrip() for line in block.splitlines() if line.startswith("data:")]
+            if not data_lines:
+                continue
+            candidate = "\n".join(data_lines).strip()
+            if not candidate:
+                continue
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        return json.loads(normalized) if normalized.strip() and not ("event:" in normalized or "data:" in normalized) else {}
 
     def post(self, method: str, params: dict | None = None, notification: bool = False) -> tuple[int, dict]:
         payload = {"jsonrpc": "2.0", "method": method}
@@ -50,9 +57,11 @@ class MCPClient:
     def validate(self, safe_calls: list[tuple[str, dict]]) -> tuple[int, str | None]:
         status, body = self.post("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mcp-controller-matrix", "version": "1"}})
         assert status == 200 and body.get("result", {}).get("protocolVersion"), "initialize response missing protocol version"
-        try: self.post("notifications/initialized", notification=True)
+        try:
+            status, _ = self.post("notifications/initialized", notification=True)
+            assert status in (200, 202, 204), f"initialized notification returned HTTP {status}"
         except urllib.error.HTTPError as error:
-            assert error.code == 202
+            assert error.code in (200, 202, 204), f"initialized notification returned HTTP {error.code}"
         status, body = self.post("tools/list", {})
         assert status == 200, f"tools/list returned HTTP {status}"
         tools = body.get("result", {}).get("tools", [])
@@ -71,10 +80,25 @@ def token_for(profile: dict) -> str:
     assert credentials, "no gateway credential configured"
     return next((c["token"] for c in credentials if c.get("name", "").lower() == "notion"), credentials[0]["token"])
 
+def server_profiles(profiles: list[dict]) -> list[dict]:
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
 def dns_name(profiles: list[dict]) -> str:
-    path = next(p["tailscalePath"] for p in profiles if p.get("tailscalePath"))
+    servers = server_profiles(profiles)
+    assert servers, "no server profiles found"
+    path = next((p.get("tailscalePath") for p in servers if p.get("tailscalePath")), None)
+    assert path, "no Tailscale CLI path configured"
     result = subprocess.run([path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
     return json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
+
+def public_url(dns: str, profile: dict) -> str:
+    mount_path = profile.get("mountPath") or "/"
+    if not mount_path.startswith("/"):
+        mount_path = "/" + mount_path
+    return f"https://{dns}{mount_path}"
+
+def public_surface_enabled(profile: dict) -> bool:
+    return bool(profile.get("tailscaleRouteEnabled")) and profile.get("exposureMode") != "disabled"
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -84,18 +108,18 @@ def main() -> int:
     parser.add_argument("--skip", action="append", default=[], help="Profile name to skip (repeatable)")
     args = parser.parse_args()
     profiles = json.loads(pathlib.Path(args.config).read_text())
-    dns = dns_name(profiles)
+    servers = server_profiles(profiles)
+    dns = dns_name(servers)
     report, failures = [], []
-    for profile in profiles:
+    for profile in servers:
         if profile["name"] in args.skip:
             print(json.dumps({"name": profile["name"], "status": "skipped"}), flush=True)
             continue
         row = {"name": profile["name"], "surfaces": {}}
         token = token_for(profile)
-        surfaces = {
-            "gateway": f"http://127.0.0.1:{profile['gatewayPort']}/",
-            "public": f"https://{dns}{profile['mountPath']}",
-        }
+        surfaces = {"gateway": f"http://127.0.0.1:{profile['gatewayPort']}/"}
+        if public_surface_enabled(profile):
+            surfaces["public"] = public_url(dns, profile)
         for surface, url in surfaces.items():
             started = time.monotonic()
             try:
@@ -108,7 +132,7 @@ def main() -> int:
                 failures.append({"profile": profile["name"], "surface": surface, "error": detail})
         report.append(row)
         print(json.dumps(row, sort_keys=True), flush=True)
-    tested_surfaces = len(report) * 2
+    tested_surfaces = sum(len(row["surfaces"]) for row in report)
     summary = {"passedSurfaces": tested_surfaces-len(failures), "failedSurfaces": len(failures), "skippedProfiles": args.skip, "profiles": report, "failures": failures}
     print(json.dumps(summary, indent=2))
     return 1 if failures else 0

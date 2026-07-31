@@ -7,30 +7,65 @@ WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    profiles = json.load(f)
-profile = next((p for p in profiles if p.get("name", "").casefold() == "remote macos use"), None)
+import json, subprocess, sys
+
+config_path, output_path = sys.argv[1], sys.argv[2]
+with open(config_path) as f:
+    profiles = [p for p in json.load(f) if p.get("kind", "server") == "server"]
+if not profiles:
+    raise SystemExit("No server profiles found")
+
+target_name = None
+for key in ("MCP_PROFILE", "PROFILE_NAME"):
+    value = __import__("os").environ.get(key, "").strip()
+    if value:
+        target_name = value
+        break
+
+profile = None
+if target_name:
+    profile = next((p for p in profiles if p.get("name", "").casefold() == target_name.casefold()), None)
 if not profile:
-    profile = next((p for p in profiles if p.get("mountPath") == "/mcp/remote" or p.get("gatewayPort") == 39003), None)
+    profile = next((p for p in profiles if p.get("name", "").casefold() == "remote macos use"), None)
 if not profile:
-    raise SystemExit("Remote macOS Use profile not found")
-credential = next((c for c in profile.get("clientCredentials", []) if c.get("name") == "Notion"), None)
+    profile = next((p for p in profiles if p.get("mountPath") == "/mcp/remote"), None)
+if not profile:
+    profile = next((p for p in profiles if p.get("remoteClientCompatibilityEnabled")), None)
+if not profile:
+    profile = next((p for p in profiles if p.get("tailscaleRouteEnabled")), None)
+if not profile:
+    raise SystemExit("No suitable remote profile found")
+
+client_name = __import__("os").environ.get("MCP_CLIENT", "").strip()
+credential = None
+if client_name:
+    credential = next((c for c in profile.get("clientCredentials", []) if c.get("name", "").casefold() == client_name.casefold()), None)
+if not credential:
+    credential = next((c for c in profile.get("clientCredentials", []) if c.get("name") == "Notion"), None)
 if not credential:
     credential = (profile.get("clientCredentials") or [None])[0]
 if not credential:
-    raise SystemExit("No access key exists for Remote macOS Use")
+    raise SystemExit(f"No access key exists for {profile.get('name') or 'selected profile'}")
+
+tailscale_path = profile.get("tailscalePath") or "/opt/homebrew/bin/tailscale"
+result = subprocess.run([tailscale_path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
+dns_name = json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
+mount_path = profile.get("mountPath") or "/mcp/remote"
+if not mount_path.startswith("/"):
+    mount_path = "/" + mount_path
 out = {
-    "url": "https://cashs-macbook-pro.tail6b12d0.ts.net" + profile.get("mountPath", "/mcp/remote"),
+    "name": profile.get("name", ""),
+    "url": f"https://{dns_name}{mount_path}",
     "token": credential["token"],
     "compatibility": profile.get("remoteClientCompatibilityEnabled"),
     "gatewayPort": profile.get("gatewayPort"),
     "localPort": profile.get("localPort"),
 }
-with open(sys.argv[2], "w") as f:
+with open(output_path, "w") as f:
     json.dump(out, f)
 PY
 
+PROFILE_NAME=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$WORK/profile.json")
 URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$WORK/profile.json")
 TOKEN=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$WORK/profile.json")
 COMPAT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["compatibility"])' "$WORK/profile.json")
@@ -40,6 +75,7 @@ UPSTREAM=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["loca
 exec > >(tee "$REPORT") 2>&1
 
 echo "=== CONFIGURATION ==="
+echo "Profile: $PROFILE_NAME"
 echo "URL: $URL"
 echo "Compatibility enabled: $COMPAT"
 echo "Gateway port: $GATEWAY"
@@ -86,12 +122,27 @@ request initialize_json_only \
 
 SESSION=$(awk 'BEGIN{IGNORECASE=1} /^mcp-session-id:/ {gsub("\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' "$WORK/initialize_json_only.headers")
 VERSION=$(python3 - "$WORK/initialize_json_only.body" <<'PY'
-import json, re, sys
-text=open(sys.argv[1], errors="replace").read()
-match=re.search(r'data:\s*(\{.*\})', text)
-if match: text=match.group(1)
-try: print(json.loads(text).get("result",{}).get("protocolVersion", "2024-11-05"))
-except Exception: print("2024-11-05")
+import json, sys
+text = open(sys.argv[1], errors="replace").read().replace("\r\n", "\n")
+payload = None
+for block in text.split("\n\n"):
+    data_lines = [line[5:].lstrip() for line in block.split("\n") if line.startswith("data:")]
+    if not data_lines:
+        continue
+    candidate = "\n".join(data_lines).strip()
+    if not candidate:
+        continue
+    try:
+        payload = json.loads(candidate)
+        break
+    except Exception:
+        continue
+if payload is None:
+    payload = json.loads(text)
+version = payload.get("result", {}).get("protocolVersion")
+if not version:
+    raise SystemExit("initialize response missing protocol version")
+print(version)
 PY
 )
 echo "Negotiated protocol: $VERSION"
