@@ -104,7 +104,10 @@ extension AppModel {
         case "funnel-status": return .ok(tailscaleFunnelRunning ? "running" : "stopped")
         case "use-default-cli": applyDefaultTailscaleCLIToAllProfiles(); return .ok("Updated every profile to use the default Tailscale CLI path.")
         case "one-ai":
-            let enabled = request.arguments["enabled"] == "true"
+            guard let enabledValue = request.arguments["enabled"] else {
+                return .error("Pass --enabled true or false.")
+            }
+            let enabled = enabledValue == "true"
             applyGlobalOneAIPolicy(enabled)
             if let shared = AppSettings.shared {
                 shared.oneAIOnly = enabled
