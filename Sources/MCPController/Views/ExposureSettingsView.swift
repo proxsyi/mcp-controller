@@ -41,7 +41,7 @@ struct ExposureSettingsView: View {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                         GridRow {
                             Text("Audience").foregroundStyle(.secondary)
-                            Picker("Audience", selection: $profile.exposureMode) {
+                            Picker("Audience", selection: exposureModeBinding) {
                                 Text("Tailnet only").tag(ExposureMode.tailnet)
                                 Text("Public Funnel").tag(ExposureMode.funnel)
                             }
@@ -51,7 +51,7 @@ struct ExposureSettingsView: View {
                         }
                         GridRow {
                             Text("HTTPS port").foregroundStyle(.secondary)
-                            Picker("HTTPS port", selection: $profile.publicPort) {
+                            Picker("HTTPS port", selection: publicPortBinding) {
                                 ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
                             }
                             .labelsHidden()
@@ -60,7 +60,7 @@ struct ExposureSettingsView: View {
                         }
                         GridRow {
                             Text("Route path").foregroundStyle(.secondary)
-                            TextField("/mcp/server", text: $profile.mountPath)
+                            TextField("/mcp/server", text: mountPathBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
                                 .disabled(model.tailscaleFunnelRunning)
@@ -87,7 +87,7 @@ struct ExposureSettingsView: View {
 
                     Text(model.tailscaleFunnelRunning
                          ? "Stop the shared Funnel in Settings before editing a live public route."
-                         : "These route settings will be used the next time the shared Funnel starts.")
+                         : "Route changes are applied directly when this server’s remote route is enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -185,6 +185,39 @@ struct ExposureSettingsView: View {
         Binding(get: { profile.tailscaleRouteEnabled }, set: { applyRemoteAccess(enabled: $0) })
     }
 
+    private var exposureModeBinding: Binding<ExposureMode> {
+        Binding(
+            get: { profile.exposureMode },
+            set: { value in
+                var updated = profile
+                updated.exposureMode = value
+                applyRouteConfigurationChange(updated)
+            }
+        )
+    }
+
+    private var publicPortBinding: Binding<Int> {
+        Binding(
+            get: { profile.publicPort },
+            set: { value in
+                var updated = profile
+                updated.publicPort = value
+                applyRouteConfigurationChange(updated)
+            }
+        )
+    }
+
+    private var mountPathBinding: Binding<String> {
+        Binding(
+            get: { profile.mountPath },
+            set: { value in
+                var updated = profile
+                updated.mountPath = value
+                applyRouteConfigurationChange(updated)
+            }
+        )
+    }
+
     private var compatibilityBinding: Binding<Bool> {
         Binding(
             get: { profile.remoteClientCompatibilityEnabled },
@@ -232,6 +265,20 @@ struct ExposureSettingsView: View {
             } else if model.stopTailscaleRoute(current) {
                 profile = updated
             }
+        }
+        refreshDNS()
+    }
+
+    private func applyRouteConfigurationChange(_ updated: ServerProfile) {
+        if phase.isActive {
+            profile = updated
+        } else if updated.tailscaleRouteEnabled {
+            if model.startTailscaleRoute(updated) {
+                profile = updated
+            }
+        } else {
+            model.update(updated)
+            profile = updated
         }
         refreshDNS()
     }

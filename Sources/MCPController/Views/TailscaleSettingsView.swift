@@ -74,20 +74,20 @@ struct TailscaleSettingsView: View {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                     GridRow {
                         Text("Audience").foregroundStyle(.secondary)
-                        Picker("Audience", selection: profile.exposureMode) {
+                        Picker("Audience", selection: audienceBinding(for: profile)) {
                             Text("Tailnet only").tag(ExposureMode.tailnet)
                             Text("Public Funnel").tag(ExposureMode.funnel)
                         }.labelsHidden().pickerStyle(.segmented)
                     }
                     GridRow {
                         Text("HTTPS port").foregroundStyle(.secondary)
-                        Picker("HTTPS port", selection: profile.publicPort) {
+                        Picker("HTTPS port", selection: httpsPortBinding(for: profile)) {
                             ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
                         }.labelsHidden().frame(width: 120)
                     }
                     GridRow {
                         Text("Route path").foregroundStyle(.secondary)
-                        TextField("/mcp/server", text: profile.mountPath).textFieldStyle(.roundedBorder)
+                        TextField("/mcp/server", text: mountPathBinding(for: profile)).textFieldStyle(.roundedBorder)
                     }
                 }
                 .disabled(model.tailscaleFunnelRunning)
@@ -122,6 +122,51 @@ struct TailscaleSettingsView: View {
                 profile.wrappedValue = value
             }
         }
+    }
+
+    private func audienceBinding(for profile: Binding<ServerProfile>) -> Binding<ExposureMode> {
+        Binding(
+            get: { profile.wrappedValue.exposureMode },
+            set: { value in
+                var updated = profile.wrappedValue
+                updated.exposureMode = value
+                applyRouteConfigurationChange(updated, to: profile)
+            }
+        )
+    }
+
+    private func httpsPortBinding(for profile: Binding<ServerProfile>) -> Binding<Int> {
+        Binding(
+            get: { profile.wrappedValue.publicPort },
+            set: { value in
+                var updated = profile.wrappedValue
+                updated.publicPort = value
+                applyRouteConfigurationChange(updated, to: profile)
+            }
+        )
+    }
+
+    private func mountPathBinding(for profile: Binding<ServerProfile>) -> Binding<String> {
+        Binding(
+            get: { profile.wrappedValue.mountPath },
+            set: { value in
+                var updated = profile.wrappedValue
+                updated.mountPath = value
+                applyRouteConfigurationChange(updated, to: profile)
+            }
+        )
+    }
+
+    private func applyRouteConfigurationChange(_ updated: ServerProfile, to profile: Binding<ServerProfile>) {
+        if updated.tailscaleRouteEnabled {
+            if model.startTailscaleRoute(updated) {
+                profile.wrappedValue = updated
+            }
+        } else {
+            model.update(updated)
+            profile.wrappedValue = updated
+        }
+        refreshDNS()
     }
 
     private func publicAddress(for profile: ServerProfile) -> String {
