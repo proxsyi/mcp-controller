@@ -42,8 +42,15 @@ struct MCPControllerApp: App {
                 .background(SettingsWindowProbe { settingsWindow.register($0) })
         }
 
-        MenuBarExtra("", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
+        MenuBarExtra {
             MenuBarView().environmentObject(model)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle")
+                Text("\(model.runningCount)")
+                    .monospacedDigit()
+            }
+            .accessibilityLabel("MCP Controller, \(model.runningCount) servers running")
         }
         .menuBarExtraStyle(.window)
     }
