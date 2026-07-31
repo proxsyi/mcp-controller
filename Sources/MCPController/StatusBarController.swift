@@ -2,6 +2,32 @@ import SwiftUI
 import AppKit
 import Combine
 
+struct StatusBarPresentation: Equatable {
+    let symbolName: String
+    let title: String
+    let tooltip: String
+
+    init(runningCount: Int, activeCount: Int, failedCount: Int) {
+        symbolName = runningCount > 0 || activeCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle"
+        title = runningCount > 0 ? " \(runningCount)" : ""
+
+        let transitioningCount = max(0, activeCount - runningCount)
+        var parts: [String] = []
+        if runningCount > 0 {
+            parts.append("\(runningCount) running")
+        }
+        if transitioningCount > 0 {
+            parts.append("\(transitioningCount) starting or stopping")
+        }
+        if failedCount > 0 {
+            parts.append("\(failedCount) failed")
+        }
+        tooltip = parts.isEmpty
+            ? "MCP Controller — no servers running"
+            : "MCP Controller — " + parts.joined(separator: ", ")
+    }
+}
+
 @MainActor
 final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
@@ -39,32 +65,16 @@ final class StatusBarController: NSObject, ObservableObject {
 
     private func updateButton(using model: AppModel) {
         guard let statusItem, let button = statusItem.button else { return }
-        let count = model.runningCount
-        let activeCount = model.activeCount
-        let hasLiveActivity = count > 0 || activeCount > 0
-        button.image = NSImage(systemSymbolName: hasLiveActivity ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
+        let presentation = StatusBarPresentation(
+            runningCount: model.runningCount,
+            activeCount: model.activeCount,
+            failedCount: model.failedCount
+        )
+        button.image = NSImage(systemSymbolName: presentation.symbolName, accessibilityDescription: "MCP Controller")
         button.imagePosition = .imageLeading
-        button.title = count > 0 ? " \(count)" : ""
-        button.toolTip = tooltip(runningCount: count, activeCount: activeCount, failedCount: model.failedCount)
+        button.title = presentation.title
+        button.toolTip = presentation.tooltip
         statusItem.length = NSStatusItem.variableLength
-    }
-
-    private func tooltip(runningCount: Int, activeCount: Int, failedCount: Int) -> String {
-        let transitioningCount = max(0, activeCount - runningCount)
-        var parts: [String] = []
-        if runningCount > 0 {
-            parts.append("\(runningCount) running")
-        }
-        if transitioningCount > 0 {
-            parts.append("\(transitioningCount) starting or stopping")
-        }
-        if failedCount > 0 {
-            parts.append("\(failedCount) failed")
-        }
-        if parts.isEmpty {
-            return "MCP Controller — no servers running"
-        }
-        return "MCP Controller — " + parts.joined(separator: ", ")
     }
 
     @objc
