@@ -70,8 +70,15 @@ struct SettingsView: View {
         .onAppear {
             selection = SettingsSection(storageValue: settings.preferredSettingsSection) ?? .app
         }
+        .onChange(of: settings.preferredSettingsSection) { _, value in
+            if let section = SettingsSection(storageValue: value), section != selection {
+                selection = section
+            }
+        }
         .onChange(of: selection) { _, value in
-            settings.preferredSettingsSection = value.storageValue
+            if settings.preferredSettingsSection != value.storageValue {
+                settings.preferredSettingsSection = value.storageValue
+            }
         }
     }
 
