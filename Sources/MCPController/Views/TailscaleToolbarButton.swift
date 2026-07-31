@@ -1,10 +1,11 @@
 import SwiftUI
-import AppKit
 
 struct TailscaleToolbarButton: View {
+    @Environment(\.openSettings) private var openSettings
+
     var body: some View {
         Button {
-            _ = NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            openSettings()
         } label: {
             Image(systemName: "globe")
                 .font(.system(size: 13, weight: .semibold))
