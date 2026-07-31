@@ -123,6 +123,7 @@ struct TailscaleSettingsView: View {
                 profile.wrappedValue = value
             }
         }
+        refreshDNS()
     }
 
     private func audienceBinding(for profile: Binding<ServerProfile>) -> Binding<ExposureMode> {
