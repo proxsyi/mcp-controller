@@ -764,6 +764,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
         if let sessionID, !sessionID.isEmpty {
             headerLines.append("Mcp-Session-Id: \(sessionID)")
         }
+        if let protocolVersion, !protocolVersion.isEmpty {
+            headerLines.append("MCP-Protocol-Version: \(protocolVersion)")
+        }
 
         let headers = headerLines.joined(separator: "\r\n") + "\r\n\r\n"
         var response = Data(headers.utf8)
