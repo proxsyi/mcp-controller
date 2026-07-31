@@ -97,7 +97,7 @@ struct TailscaleSettingsView: View {
                     Spacer()
                     Button("Copy", systemImage: "square.on.square") {
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(publicAddress(for: profile.wrappedValue), forType: .string)
-                    }.labelStyle(.iconOnly).disabled(dnsName.isEmpty)
+                    }.labelStyle(.iconOnly).disabled(model.remoteURL(for: profile.wrappedValue) == nil)
                 }
             }
         }
@@ -123,8 +123,9 @@ struct TailscaleSettingsView: View {
     }
 
     private func publicAddress(for profile: ServerProfile) -> String {
-        dnsName.isEmpty ? "Address available when Tailscale is connected" : TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        model.remoteURL(for: profile) ?? "Address available when Tailscale is connected"
     }
+
     private func refreshDNS() {
         let path = model.serverProfiles.first?.tailscalePath ?? TailscaleRouteService.defaultCLIPath
         dnsName = TailscaleRouteService.dnsName(cliPath: path) ?? ""
