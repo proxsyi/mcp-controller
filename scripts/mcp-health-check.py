@@ -8,7 +8,7 @@ config = home / "Library/Application Support/MCP Controller/servers.json"
 app = Path("/Applications/MCP Controller.app")
 report_path = home / "Desktop/mcp-health-report.txt"
 results = []
-payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
+payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
 
 def run(cmd, timeout=20):
     try: return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -67,6 +67,9 @@ def sha(path):
         for block in iter(lambda:f.read(1048576),b""): h.update(block)
     return h.hexdigest()
 
+def server_profiles(profiles):
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
 def main():
     section("BUILD AND PROCESS STATE")
     print("Repo HEAD:",run(["git","-C",str(repo),"rev-parse","HEAD"]).stdout.strip())
@@ -77,9 +80,9 @@ def main():
         with open(app/"Contents/Info.plist","rb") as f: info=plistlib.load(f)
         print("Installed version:",info.get("CFBundleShortVersionString"),"build",info.get("CFBundleVersion"),info.get("CFBundleIdentifier"))
     if installed.exists() and built.exists(): print("Installed/build binary match:","PASS" if sha(installed)==sha(built) else "FAIL")
-    print(run(["pgrep","-fl","MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript|automation"]).stdout.strip() or "No matching processes")
+    print(run(["pgrep","-fl","MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript"]).stdout.strip() or "No matching processes")
 
-    with open(config) as f: profiles=json.load(f)
+    with open(config) as f: profiles=server_profiles(json.load(f))
     section("CONFIGURATION AND PORTS")
     for p in profiles:
         ep,source=endpoint(p); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); creds=p.get("clientCredentials") or []

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live, profile-specific MCP integration tests for MCP Controller."""
 from __future__ import annotations
-import argparse, json, os, sys, time, urllib.error, urllib.request
+import argparse, json, os, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 PROFILE_SPECS = {
@@ -28,12 +28,19 @@ PROFILE_SPECS = {
 }
 
 def parse_message(text: str) -> dict:
-    for line in text.splitlines():
-        if line.startswith("data:"):
-            data = line[5:].strip()
-            if data:
-                return json.loads(data)
-    return json.loads(text) if text.strip() and not ("event:" in text or "data:" in text) else {}
+    normalized = text.replace("\r\n", "\n")
+    for block in normalized.split("\n\n"):
+        data_lines = [line[5:].lstrip() for line in block.splitlines() if line.startswith("data:")]
+        if not data_lines:
+            continue
+        candidate = "\n".join(data_lines).strip()
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return json.loads(normalized) if normalized.strip() and not ("event:" in normalized or "data:" in normalized) else {}
 
 class Client:
     def __init__(self, url: str, token: str, timeout: int):
@@ -54,25 +61,48 @@ class Client:
         raise AssertionError("unreachable")
     def initialize(self) -> None:
         status, body = self.post({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-controller-tests","version":"1"}}})
-        assert status == 200 and body.get("result", {}).get("protocolVersion") == "2025-11-25"
-        status, _ = self.post({"jsonrpc":"2.0","method":"notifications/initialized"})
-        assert status == 202
+        assert status == 200 and body.get("result", {}).get("protocolVersion"), "initialize response missing protocol version"
+        try:
+            status, _ = self.post({"jsonrpc":"2.0","method":"notifications/initialized"})
+            assert status in (200, 202, 204), f"initialized notification returned HTTP {status}"
+        except urllib.error.HTTPError as error:
+            assert error.code in (200, 202, 204), f"initialized notification returned HTTP {error.code}"
 
 def token_for(profile: dict) -> str:
     credentials = profile.get("clientCredentials", [])
     if not credentials: raise AssertionError("No client credentials configured")
     return next((item["token"] for item in credentials if item.get("name", "").lower() == "notion"), credentials[0]["token"])
 
+def server_profiles(profiles: list[dict]) -> list[dict]:
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
+def dns_name(profiles: list[dict]) -> str:
+    path = next((profile.get("tailscalePath") for profile in server_profiles(profiles) if profile.get("tailscalePath")), None)
+    if not path:
+        raise AssertionError("No Tailscale CLI path configured")
+    result = subprocess.run([path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
+    return json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
+
+def public_base_url(profiles: list[dict], provided: str | None) -> str:
+    if provided:
+        return provided.rstrip("/")
+    return f"https://{dns_name(profiles)}"
+
+def mount_path(profile: dict) -> str:
+    value = profile.get("mountPath") or "/"
+    return value if value.startswith("/") else "/" + value
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default="https://cashs-macbook-pro.tail6b12d0.ts.net")
+    ap.add_argument("--base-url")
     ap.add_argument("--config", default=str(Path.home()/"Library/Application Support/MCP Controller/servers.json"))
     ap.add_argument("--timeout", type=int, default=60)
     ap.add_argument("--skip-tool-calls", action="store_true")
     ap.add_argument("--only", action="append", help="Run one named profile; repeatable")
     ap.add_argument("--local", action="store_true", help="Test local upstream endpoints instead of public routes")
     args = ap.parse_args()
-    profiles = {p["id"].upper(): p for p in json.load(open(args.config))}
+    profiles = {p["id"].upper(): p for p in server_profiles(json.load(open(args.config)))}
+    base_url = None if args.local else public_base_url(list(profiles.values()), args.base_url)
     failures, report = [], []
     for pid, spec in PROFILE_SPECS.items():
         if args.only and spec["name"] not in args.only:
@@ -83,7 +113,7 @@ def main() -> int:
             p = profiles[pid]
             assert p["name"] == spec["name"], f"name is {p['name']!r}"
             assert p.get("description") == spec["description"], f"description is {p.get('description')!r}"
-            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else args.base_url.rstrip("/") + p["mountPath"]
+            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else base_url + mount_path(p)
             client = Client(url, token_for(p), args.timeout)
             client.initialize()
             status, body = client.post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})

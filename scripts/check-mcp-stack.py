@@ -18,7 +18,7 @@ OUTPUT = HOME / "Desktop/mcp-controller-diagnostics.txt"
 RESULTS = []
 PAYLOAD = json.dumps({
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
-    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+    "params": {"protocolVersion": "2025-11-25", "capabilities": {},
                "clientInfo": {"name": "mcp-stack-check", "version": "1.0"}},
 }, separators=(",", ":"))
 
@@ -128,6 +128,10 @@ def probe(label, url, token="", method="POST", timeout=10):
             print("   ", line[:600])
 
 
+def server_profiles(profiles):
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
+
 def main():
     heading("SYSTEM, SOURCE, AND INSTALLED BUILD")
     print("Generated:", datetime.datetime.now().astimezone().isoformat())
@@ -148,12 +152,12 @@ def main():
         print("Built SHA:    ", sha256(built))
     if installed.exists() and built.exists():
         print("Binary match:", "PASS" if sha256(installed) == sha256(built) else "FAIL")
-    print("Processes:\n" + (run(["pgrep", "-fl", "MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript|automation"]).stdout.strip() or "none"))
+    print("Processes:\n" + (run(["pgrep", "-fl", "MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript"]).stdout.strip() or "none"))
 
     if not CONFIG.exists():
         raise SystemExit(f"Missing config: {CONFIG}")
     with open(CONFIG) as source:
-        profiles = json.load(source)
+        profiles = server_profiles(json.load(source))
 
     heading("PROFILE CONFIGURATION AND LISTENERS")
     for profile in profiles:
