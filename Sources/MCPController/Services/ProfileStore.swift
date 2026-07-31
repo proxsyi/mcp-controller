@@ -17,16 +17,8 @@ final class ProfileStore: @unchecked Sendable {
     }
 
     func save(_ profiles: [ServerProfile]) throws {
-        var capturedError: Error?
-        saveQueue.sync {
-            do {
-                try writeProfiles(profiles)
-            } catch {
-                capturedError = error
-            }
-        }
-        if let capturedError {
-            throw capturedError
+        try saveQueue.sync { [self] in
+            try writeProfiles(profiles)
         }
     }
 
