@@ -548,10 +548,11 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func upstreamRequestData(_ request: HTTPRequest, target: String) -> Data {
+        let excludedHeaders = upstreamExcludedHeaders(for: request)
         var headers = "\(request.method) \(target) HTTP/1.1\r\n"
         headers += "Host: 127.0.0.1:\(profile.localPort)\r\n"
         for (name, value) in request.headers.sorted(by: { $0.key < $1.key }) {
-            guard !["accept", "authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "mcp-protocol-version", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
+            guard !excludedHeaders.contains(name) else { continue }
             headers += "\(name): \(value)\r\n"
         }
         var protocolVersion = request.headers["mcp-protocol-version"]
@@ -575,6 +576,37 @@ private final class ExclusiveGateway: @unchecked Sendable {
         var data = Data(headers.utf8)
         data.append(request.body)
         return data
+    }
+
+    private func upstreamExcludedHeaders(for request: HTTPRequest) -> Set<String> {
+        var excluded: Set<String> = [
+            "accept",
+            "authorization",
+            "connection",
+            "content-length",
+            "host",
+            "keep-alive",
+            "mcp-protocol-version",
+            "origin",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "proxy-connection",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "x-forwarded-host",
+            "x-forwarded-prefix",
+            "x-forwarded-proto"
+        ]
+        if let connectionHeader = request.headers["connection"] {
+            let namedHopByHopHeaders = connectionHeader
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+            excluded.formUnion(namedHopByHopHeaders)
+        }
+        return excluded
     }
 
     private func pipeUpstreamResponse(
