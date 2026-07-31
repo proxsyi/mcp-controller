@@ -165,6 +165,7 @@ extension AppModel {
             return .ok(onInstallUpdate())
         case "open": NSApplication.shared.activate(ignoringOtherApps: true); return .ok("Opened MCP Controller.")
         case "settings":
+            AppSettings.shared?.preferredSettingsSection = "app"
             if NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
                 return .ok("Opened Settings.")
             }
