@@ -337,6 +337,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     sendError(connection, status: 403, message: "This session belongs to a different authorized AI client.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                     return
                 }
+                _ = arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name)
                 publishState()
                 if profile.remoteClientCompatibilityEnabled {
                     logHandler("Compatibility session stream attached locally.\n")
