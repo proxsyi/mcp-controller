@@ -96,7 +96,11 @@ struct RootView: View {
                 .help("Settings (⌘,)")
             }
         }
-        .sheet(isPresented: $showingAddServer) { AddServerView().environmentObject(model) }
+        .sheet(isPresented: $showingAddServer) {
+            AddServerView()
+                .environmentObject(model)
+                .environmentObject(settings)
+        }
         .alert("MCP Controller", isPresented: Binding(get: { model.presentedError != nil }, set: { if !$0 { model.presentedError = nil } })) {
             Button("OK") { model.presentedError = nil }
         } message: { Text(model.presentedError ?? "") }
