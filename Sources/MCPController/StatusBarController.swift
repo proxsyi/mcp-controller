@@ -41,7 +41,8 @@ final class StatusBarController: NSObject, ObservableObject {
         guard let statusItem, let button = statusItem.button else { return }
         let count = model.runningCount
         let activeCount = model.activeCount
-        button.image = NSImage(systemSymbolName: count > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
+        let hasLiveActivity = count > 0 || activeCount > 0
+        button.image = NSImage(systemSymbolName: hasLiveActivity ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
         button.imagePosition = .imageLeading
         button.title = ""
         button.attributedTitle = badgeTitle(count: count)
