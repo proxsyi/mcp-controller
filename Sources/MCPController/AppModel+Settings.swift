@@ -21,11 +21,22 @@ extension AppModel {
 
         var nextGatewayPort = 39_000
         func allocateGatewayPort() -> Int {
-            while usedPorts.contains(nextGatewayPort) { nextGatewayPort += 1 }
-            let port = nextGatewayPort
-            usedPorts.insert(port)
-            nextGatewayPort += 1
-            return port
+            let clampedStart = min(max(1024, nextGatewayPort), 65_535)
+            if let candidate = (clampedStart...65_535).first(where: { !usedPorts.contains($0) }) {
+                usedPorts.insert(candidate)
+                nextGatewayPort = candidate + 1
+                return candidate
+            }
+            if clampedStart > 1024,
+               let candidate = (1024..<(clampedStart)).first(where: { !usedPorts.contains($0) }) {
+                usedPorts.insert(candidate)
+                nextGatewayPort = candidate + 1
+                return candidate
+            }
+            let fallback = min(max(1024, 39_000), 65_535)
+            usedPorts.insert(fallback)
+            nextGatewayPort = fallback + 1
+            return fallback
         }
 
         for original in profiles {
