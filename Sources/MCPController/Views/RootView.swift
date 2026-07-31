@@ -3,6 +3,8 @@ import AppKit
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingAddServer = false
     @State private var searchText = ""
@@ -83,7 +85,10 @@ struct RootView: View {
 
                 TailscaleToolbarButton()
 
-                SettingsLink {
+                Button {
+                    settings.preferredSettingsSection = "app"
+                    openSettings()
+                } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 13, weight: .semibold))
                 }
