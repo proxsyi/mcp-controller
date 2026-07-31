@@ -44,22 +44,10 @@ final class StatusBarController: NSObject, ObservableObject {
         let hasLiveActivity = count > 0 || activeCount > 0
         button.image = NSImage(systemSymbolName: hasLiveActivity ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
         button.imagePosition = .imageLeading
-        button.title = ""
-        button.attributedTitle = badgeTitle(count: count)
+        button.attributedTitle = NSAttributedString(string: "")
+        button.title = count > 0 ? " \(count)" : ""
         button.toolTip = tooltip(runningCount: count, activeCount: activeCount, failedCount: model.failedCount)
         statusItem.length = NSStatusItem.variableLength
-    }
-
-    private func badgeTitle(count: Int) -> NSAttributedString {
-        guard count > 0 else { return NSAttributedString(string: "") }
-        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-        return NSAttributedString(
-            string: " \(count)",
-            attributes: [
-                .font: font,
-                .foregroundColor: NSColor.labelColor
-            ]
-        )
     }
 
     private func tooltip(runningCount: Int, activeCount: Int, failedCount: Int) -> String {
