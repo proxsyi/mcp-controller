@@ -3,8 +3,14 @@ import Foundation
 final class ProfileStore: @unchecked Sendable {
     private let fileManager = FileManager.default
     private let saveQueue = DispatchQueue(label: "com.versyi.mcp-controller.profile-store")
+    private let configurationURLOverride: URL?
+
+    init(configurationURL: URL? = nil) {
+        self.configurationURLOverride = configurationURL
+    }
 
     var configurationURL: URL {
+        if let configurationURLOverride { return configurationURLOverride }
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appending(path: "MCP Controller", directoryHint: .isDirectory)
             .appending(path: "servers.json", directoryHint: .notDirectory)
