@@ -28,7 +28,6 @@ struct MCPControllerApp: App {
             return updates.statusMessage.isEmpty ? "Installing update…" : updates.statusMessage
         }
         updates.beginAutomaticChecks()
-        if settings.oneAIOnly { model.applyGlobalOneAIPolicy(true) }
         _model = StateObject(wrappedValue: model)
         _settings = StateObject(wrappedValue: settings)
         _updates = StateObject(wrappedValue: updates)

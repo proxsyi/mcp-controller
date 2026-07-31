@@ -4,7 +4,7 @@ set -euo pipefail
 CONFIG="$HOME/Library/Application Support/MCP Controller/servers.json"
 REPORT="$HOME/Desktop/notion-mcp-validation-report.txt"
 WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
-ORIGIN="https://www.notion.so"
+ORIGIN="${MCP_ORIGIN:-https://www.notion.so}"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
@@ -78,6 +78,7 @@ exec > >(tee "$REPORT") 2>&1
 echo "=== CONFIGURATION ==="
 echo "Profile: $PROFILE_NAME"
 echo "URL: $URL"
+echo "Origin: $ORIGIN"
 echo "Compatibility enabled: $COMPAT"
 echo "Gateway port: $GATEWAY"
 echo "Upstream port: $UPSTREAM"
