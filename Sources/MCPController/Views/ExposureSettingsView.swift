@@ -220,10 +220,7 @@ struct ExposureSettingsView: View {
             }
             if phase.isActive {
                 profile = updated
-            } else if model.tailscaleFunnelRunning {
-                if model.startTailscaleRoute(updated) { profile = updated }
-            } else {
-                model.update(updated)
+            } else if model.startTailscaleRoute(updated) {
                 profile = updated
             }
         } else {
@@ -232,10 +229,7 @@ struct ExposureSettingsView: View {
             updated.tailscaleRouteEnabled = false
             if phase.isActive {
                 profile = updated
-            } else if model.tailscaleFunnelRunning {
-                if model.stopTailscaleRoute(current) { profile = updated }
-            } else {
-                model.update(updated)
+            } else if model.stopTailscaleRoute(current) {
                 profile = updated
             }
         }

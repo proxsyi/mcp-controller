@@ -113,14 +113,14 @@ struct TailscaleSettingsView: View {
             if value.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: value.tailscalePath) {
                 value.tailscalePath = TailscaleRouteService.defaultCLIPath
             }
-            model.update(value)
-            profile.wrappedValue = value
-            if model.tailscaleFunnelRunning { _ = model.startTailscaleRoute(value) }
+            if model.startTailscaleRoute(value) {
+                profile.wrappedValue = value
+            }
         } else {
-            if model.tailscaleFunnelRunning { _ = model.stopTailscaleRoute(value) }
-            value.tailscaleRouteEnabled = false
-            model.update(value)
-            profile.wrappedValue = value
+            if model.stopTailscaleRoute(value) {
+                value.tailscaleRouteEnabled = false
+                profile.wrappedValue = value
+            }
         }
     }
 
