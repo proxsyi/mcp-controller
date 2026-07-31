@@ -50,19 +50,21 @@ final class StatusBarController: NSObject, ObservableObject {
     }
 
     private func tooltip(runningCount: Int, activeCount: Int, failedCount: Int) -> String {
-        if runningCount == 0 {
-            if failedCount > 0 {
-                return "MCP Controller — no servers running, \(failedCount) failed"
-            }
-            if activeCount > 0 {
-                return "MCP Controller — starting or stopping \(activeCount) servers"
-            }
-            return "MCP Controller — no servers running"
+        let transitioningCount = max(0, activeCount - runningCount)
+        var parts: [String] = []
+        if runningCount > 0 {
+            parts.append("\(runningCount) running")
+        }
+        if transitioningCount > 0 {
+            parts.append("\(transitioningCount) starting or stopping")
         }
         if failedCount > 0 {
-            return "MCP Controller — \(runningCount) running, \(failedCount) failed"
+            parts.append("\(failedCount) failed")
         }
-        return "MCP Controller — \(runningCount) servers running"
+        if parts.isEmpty {
+            return "MCP Controller — no servers running"
+        }
+        return "MCP Controller — " + parts.joined(separator: ", ")
     }
 
     @objc

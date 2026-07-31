@@ -19,25 +19,23 @@ struct MenuBarView: View {
     }
 
     private var statusSummary: String {
-        if model.failedCount > 0 {
-            return "\(model.failedCount) failed"
-        }
+        var parts: [String] = []
         if model.runningCount > 0 {
-            return "\(model.runningCount) running"
-        }
-        if startingCount > 0 && stoppingCount > 0 {
-            return "\(model.activeCount) active"
+            parts.append("\(model.runningCount) running")
         }
         if startingCount > 0 {
-            return "\(startingCount) starting"
+            parts.append("\(startingCount) starting")
         }
         if stoppingCount > 0 {
-            return "\(stoppingCount) stopping"
+            parts.append("\(stoppingCount) stopping")
         }
-        if model.activeCount > 0 {
-            return "\(model.activeCount) active"
+        if model.failedCount > 0 {
+            parts.append("\(model.failedCount) failed")
         }
-        return "Stopped"
+        if parts.isEmpty, model.activeCount > 0 {
+            parts.append("\(model.activeCount) active")
+        }
+        return parts.isEmpty ? "Stopped" : parts.joined(separator: " · ")
     }
 
     private var statusColor: Color {
