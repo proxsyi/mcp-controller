@@ -3,7 +3,7 @@ import Foundation
 enum TailscaleCommandBuilder {
     static func enableArguments(for profile: ServerProfile) -> [String]? {
         guard profile.tailscaleRouteEnabled else { return nil }
-        let target = "http://127.0.0.1:\(profile.exposedLocalPort)"
+        let target = upstreamTarget(for: profile)
         switch profile.exposureMode {
         case .disabled: return nil
         case .tailnet: return ["serve", "--bg", "--https=\(profile.publicPort)", "--set-path=\(profile.normalizedMountPath)", target]
@@ -32,5 +32,12 @@ enum TailscaleCommandBuilder {
 
     static func disableArguments(for profile: ServerProfile) -> [String]? {
         nil
+    }
+
+    private static func upstreamTarget(for profile: ServerProfile) -> String {
+        let base = "http://127.0.0.1:\(profile.exposedLocalPort)"
+        guard !profile.exclusiveGatewayEnabled else { return base }
+        guard let endpoint = profile.streamableHTTPPath, endpoint != "/" else { return base }
+        return base + endpoint
     }
 }
