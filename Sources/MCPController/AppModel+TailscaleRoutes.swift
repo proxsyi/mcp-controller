@@ -23,6 +23,7 @@ extension AppModel {
     }
 
     func startTailscaleFunnel() {
+        presentedError = nil
         let routes = serverProfiles.filter { $0.tailscaleRouteEnabled && $0.exposureMode == .funnel }
         guard !routes.isEmpty else {
             presentedError = "Configure at least one Public Funnel server in Settings → Tailscale before starting Funnel."
@@ -53,6 +54,7 @@ extension AppModel {
     }
 
     func stopTailscaleFunnel() {
+        presentedError = nil
         var failures: [String] = []
         for profile in serverProfiles where profile.tailscaleRouteEnabled && profile.exposureMode == .funnel {
             let errors = removeManagedRoutes(for: profile)
@@ -65,6 +67,7 @@ extension AppModel {
 
     @discardableResult
     func startTailscaleRoute(_ profile: ServerProfile) -> Bool {
+        presentedError = nil
         guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath) else { presentedError = "Tailscale CLI was not found at \(profile.tailscalePath)."; return false }
         if let conflict = serverProfiles.first(where: { $0.id != profile.id && $0.tailscaleRouteEnabled && $0.publicPort == profile.publicPort && $0.normalizedMountPath == profile.normalizedMountPath }) {
             presentedError = "\(conflict.name) already uses HTTPS port \(profile.publicPort) at \(profile.normalizedMountPath)."; return false
@@ -86,12 +89,19 @@ extension AppModel {
 
     @discardableResult
     func stopTailscaleRoute(_ profile: ServerProfile) -> Bool {
+        presentedError = nil
         let errors = removeManagedRoutes(for: profile)
         guard errors.isEmpty else {
             presentedError = "Could not remove the Tailscale route for \(profile.name): \(errors.joined(separator: "; "))"
             return false
         }
-        var configured = profile; configured.tailscaleRouteEnabled = false; update(configured)
+        var configured = profile
+        configured.tailscaleRouteEnabled = false
+        update(configured)
+        if !serverProfiles.contains(where: { $0.id != profile.id && $0.tailscaleRouteEnabled && $0.exposureMode == .funnel }) {
+            tailscaleFunnelRunning = false
+            UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
+        }
         return true
     }
 

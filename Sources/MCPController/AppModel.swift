@@ -154,9 +154,9 @@ final class AppModel: ObservableObject {
     }
 
     func moveItem(withID id: UUID, toIndex index: Int) -> Bool {
-        guard let currentIndex = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        guard profiles.contains(where: { $0.id == id }) else { return false }
         moveProfiles(withIDs: [id], toFilteredIndex: index, filteredIDs: profiles.map(\.id))
-        return currentIndex != index
+        return true
     }
 
     func remoteURL(for profile: ServerProfile) -> String? {
