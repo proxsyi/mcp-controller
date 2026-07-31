@@ -71,6 +71,7 @@ final class TerminalControlService: @unchecked Sendable {
             }
             guard let data = try? Data(contentsOf: url),
                   let request = try? JSONDecoder().decode(TerminalControlRequest.self, from: data) else {
+                writeErrorResponse("Invalid terminal control request.", for: url)
                 processedAny = true
                 continue
             }
@@ -94,6 +95,13 @@ final class TerminalControlService: @unchecked Sendable {
             }
         }
         return true
+    }
+
+    private func writeErrorResponse(_ message: String, for requestURL: URL) {
+        let response = TerminalControlResponse.error(message)
+        guard let output = try? JSONEncoder().encode(response) else { return }
+        let destination = responsesURL.appending(path: requestURL.lastPathComponent)
+        try? output.write(to: destination, options: .atomic)
     }
 
     private func sortedRequestURLs() -> [URL] {
