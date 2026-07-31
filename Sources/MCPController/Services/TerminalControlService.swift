@@ -57,8 +57,10 @@ final class TerminalControlService: @unchecked Sendable {
 
     func start(handler: @escaping Handler) {
         self.handler = handler
-        try? FileManager.default.createDirectory(at: requestsURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.createDirectory(at: responsesURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for directory in [baseURL, requestsURL, responsesURL] {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
         guard !isRunning else { return }
         isRunning = true
         scheduleNextPoll(after: 0)
@@ -129,7 +131,12 @@ final class TerminalControlService: @unchecked Sendable {
     private func writeResponse(_ response: TerminalControlResponse, requestID: String) {
         guard let output = try? JSONEncoder().encode(response) else { return }
         let destination = responsesURL.appending(path: requestID + ".json")
-        try? output.write(to: destination, options: .atomic)
+        do {
+            try output.write(to: destination, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+        }
     }
 
     private func writeErrorResponse(_ message: String, for requestURL: URL) {

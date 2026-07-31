@@ -58,8 +58,9 @@ def main():
     if not ensure_app():
         print("MCP Controller is not ready to accept terminal commands.", file=sys.stderr)
         return 2
-    reqdir.mkdir(parents=True, exist_ok=True)
-    respdir.mkdir(parents=True, exist_ok=True)
+    for directory in (base, reqdir, respdir):
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
     ident=str(uuid.uuid4())
     extra={"secrets":str(args.secrets).lower(), "restart":str(args.restart).lower()}
     if args.file: extra["json"]=pathlib.Path(args.file).read_text()
@@ -76,6 +77,7 @@ def main():
     temp=reqdir/(ident+".tmp")
     final=reqdir/(ident+".json")
     temp.write_text(json.dumps(request))
+    os.chmod(temp, 0o600)
     temp.rename(final)
     response=respdir/(ident+".json")
     deadline=time.time()+args.timeout
