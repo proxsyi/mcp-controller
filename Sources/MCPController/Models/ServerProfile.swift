@@ -118,7 +118,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         exposureMode = try v.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled; tailscaleRouteEnabled = try v.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
         publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443; mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
         let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
-        tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
+        tailscalePath = storedPath.isEmpty ? TailscaleRouteService.defaultCLIPath : storedPath
         startupDelaySeconds = max(15, try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 15)
         autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
         exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false

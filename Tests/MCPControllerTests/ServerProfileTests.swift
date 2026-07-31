@@ -17,6 +17,15 @@ final class ServerProfileTests: XCTestCase {
         XCTAssertEqual(decoded.publicRequestTimeoutSeconds, 300)
     }
 
+    func testDecodePreservesTemporarilyUnavailableCustomTailscaleCLIPath() throws {
+        var profile = ServerProfile()
+        profile.tailscalePath = "/temporarily/unavailable/custom/tailscale"
+
+        let decoded = try JSONDecoder().decode(ServerProfile.self, from: JSONEncoder().encode(profile))
+
+        XCTAssertEqual(decoded.tailscalePath, profile.tailscalePath)
+    }
+
     func testPublicRequestTimeoutValidationRange() {
         var profile = ServerProfile()
         profile.executablePath = "/bin/echo"
