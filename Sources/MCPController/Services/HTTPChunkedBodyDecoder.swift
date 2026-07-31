@@ -43,9 +43,12 @@ enum HTTPChunkedBodyDecoder {
                 return nil
             }
 
-            guard cursor + size + 1 < bytes.count else { return nil }
+            guard cursor <= bytes.count,
+                  size <= bytes.count - cursor else { return nil }
             let chunkEnd = cursor + size
-            guard bytes[chunkEnd] == 13 && bytes[chunkEnd + 1] == 10 else { return nil }
+            guard chunkEnd + 1 < bytes.count,
+                  bytes[chunkEnd] == 13,
+                  bytes[chunkEnd + 1] == 10 else { return nil }
             decoded.append(contentsOf: bytes[cursor..<chunkEnd])
             cursor = chunkEnd + 2
         }
