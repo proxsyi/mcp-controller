@@ -106,7 +106,8 @@ request() {
   sed -E 's/^(authorization:).*/\1 <redacted>/I' "$headers"
   echo "curl exit: $code"
   echo "body:"
-  head -c 3000 "$body"; echo
+  head -c 3000 "$body"
+  echo
 }
 
 request pre_session_get \
@@ -136,8 +137,8 @@ for block in text.split("\n\n"):
     if not candidate:
         continue
     try:
-            payload = json.loads(candidate)
-            break
+        payload = json.loads(candidate)
+        break
     except Exception:
         continue
 if payload is None:
