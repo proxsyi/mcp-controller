@@ -4,6 +4,8 @@ set -euo pipefail
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 CONFIG="${MCP_CONFIG:-$HOME/Library/Application Support/MCP Controller/servers.json}"
 REPORT="${MCP_REPORT:-$HOME/Desktop/notion-mcp-validation-report-$TIMESTAMP.txt}"
+REPO="${MCP_CONTROLLER_REPO:-$HOME/Projects/Clients/Versyi/MCP-Controller}"
+APP="${MCP_CONTROLLER_APP:-/Applications/MCP Controller.app}"
 WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
 DEFAULT_ORIGIN="https://www."
 DEFAULT_ORIGIN+="notion.so"
@@ -85,11 +87,11 @@ echo "Origin: $ORIGIN"
 echo "Compatibility enabled: $COMPAT"
 echo "Gateway port: $GATEWAY"
 echo "Upstream port: $UPSTREAM"
-echo "Installed version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '/Applications/MCP Controller.app/Contents/Info.plist' 2>/dev/null || echo missing)"
+echo "Installed version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo missing)"
 echo "Installed executable:"
 pgrep -fl '/MCP Controller.app/Contents/MacOS/MCPController' || true
 echo "App bundles:"
-find /Applications "$HOME/Applications" "$HOME/Projects/Clients/Versyi/MCP-Controller/dist" -maxdepth 2 -name 'MCP Controller.app' -print 2>/dev/null || true
+find /Applications "$HOME/Applications" "$REPO/dist" -maxdepth 2 -name 'MCP Controller.app' -print 2>/dev/null || true
 echo "Listeners:"
 lsof -nP -iTCP:"$GATEWAY" -sTCP:LISTEN || true
 lsof -nP -iTCP:"$UPSTREAM" -sTCP:LISTEN || true
