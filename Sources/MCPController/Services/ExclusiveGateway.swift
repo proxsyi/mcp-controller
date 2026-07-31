@@ -459,8 +459,8 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func sendCompatibilityHandshake(_ request: HTTPRequest, connection: NWConnection) {
-        let forwardedProto = request.headers["x-forwarded-proto"]
-        let host = request.headers["x-forwarded-host"] ?? request.headers["host"] ?? "127.0.0.1:\(profile.gatewayPort)"
+        let forwardedProto = firstForwardedValue(request.headers["x-forwarded-proto"])
+        let host = firstForwardedValue(request.headers["x-forwarded-host"]) ?? request.headers["host"] ?? "127.0.0.1:\(profile.gatewayPort)"
         let scheme: String
         if let forwardedProto, !forwardedProto.isEmpty {
             scheme = forwardedProto
@@ -485,6 +485,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 connection.cancel()
             }
         })
+    }
+
+    private func firstForwardedValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let first = raw.split(separator: ",", maxSplits: 1).first.map(String.init) ?? ""
+        let trimmed = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func proxy(_ request: HTTPRequest, connection: NWConnection, bufferedDataAfterResponse: Data = Data()) {
