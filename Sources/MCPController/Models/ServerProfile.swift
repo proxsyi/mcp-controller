@@ -23,7 +23,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var arguments: [String] = []; var workingDirectory = ""; var environment: [String: String] = [:]
     var localPort = 3000; var exposureMode: ExposureMode = .disabled; var tailscaleRouteEnabled = false
     var publicPort = 443; var mountPath = "/"; var tailscalePath = TailscaleRouteService.defaultCLIPath
-    var startupDelaySeconds = 1.0; var autoStart = false; var exclusiveGatewayEnabled = false
+    var startupDelaySeconds = 15.0; var autoStart = false; var exclusiveGatewayEnabled = false
     var remoteClientCompatibilityEnabled = false
     var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var publicRequestTimeoutSeconds = 300; var allowedOrigins: [String] = []
     var clientCredentials: [GatewayClientCredential] = []
@@ -108,7 +108,8 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443; mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
         let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
         tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
-        startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1; autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
+        startupDelaySeconds = max(15, try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 15)
+        autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
         exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
         remoteClientCompatibilityEnabled = try v.decodeIfPresent(Bool.self, forKey: .remoteClientCompatibilityEnabled) ?? false
         gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000

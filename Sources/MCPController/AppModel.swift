@@ -237,8 +237,17 @@ final class AppModel: ObservableObject {
         guard profile.isServer, !phase(for: profile.id).isActive else { return }
         let errors = profile.validationErrors()
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
-        if let conflict = profiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
+        if let conflict = serverProfiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
             fail(profile, "\(conflict.name) is already using MCP port \(profile.localPort)."); return
+        }
+        if profile.exclusiveGatewayEnabled,
+           let conflict = serverProfiles.first(where: {
+               $0.id != profile.id && phase(for: $0.id).isActive && (
+                   $0.localPort == profile.gatewayPort ||
+                   ($0.exclusiveGatewayEnabled && $0.gatewayPort == profile.gatewayPort)
+               )
+           }) {
+            fail(profile, "\(conflict.name) is already using gateway port \(profile.gatewayPort)."); return
         }
         guard FileManager.default.isExecutableFile(atPath: profile.executablePath) else {
             fail(profile, "The executable does not exist or is not executable: \(profile.executablePath)"); return
