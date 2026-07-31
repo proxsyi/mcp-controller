@@ -3,7 +3,7 @@ import AppKit
 import Combine
 
 @MainActor
-final class StatusBarController: ObservableObject {
+final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
