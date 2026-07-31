@@ -298,30 +298,21 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         if profile.remoteClientCompatibilityEnabled,
            let sessionID = request.headers["mcp-session-id"],
-           let method = request.jsonRPCMethod {
-            let compatibilityResult: [String: Any]?
-            switch method {
-            case "resources/templates/list":
-                compatibilityResult = ["resourceTemplates": []]
-            case "resources/list":
-                compatibilityResult = ["resources": []]
-            case "prompts/list":
-                compatibilityResult = ["prompts": []]
-            default:
-                compatibilityResult = nil
-            }
-            if let result = compatibilityResult {
-                logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
-                logHandler("Compatibility fallback response: method=\(method), contentType=text/event-stream, session=\(sessionID.prefix(8))….\n")
-                sendCompatibilityResult(
-                    connection,
-                    requestID: request.jsonRPCID,
-                    sessionID: sessionID,
-                    protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
-                    result: result
-                )
-                return
-            }
+           let method = request.jsonRPCMethod,
+           let result = GatewayOptionalDiscoveryFallback.emptyResult(
+                for: method,
+                upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
+           ) {
+            logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
+            logHandler("Compatibility fallback response: method=\(method), contentType=text/event-stream, session=\(sessionID.prefix(8))….\n")
+            sendCompatibilityResult(
+                connection,
+                requestID: request.jsonRPCID,
+                sessionID: sessionID,
+                protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                result: result
+            )
+            return
         }
         if request.method == "GET" {
             if let _ = request.headers["mcp-session-id"] {
