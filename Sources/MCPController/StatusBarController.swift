@@ -23,14 +23,11 @@ final class StatusBarController: NSObject, ObservableObject {
         popover.animates = false
         popover.contentSize = NSSize(width: 390, height: 420)
         popover.contentViewController = hostingController
-        observation = model.objectWillChange
+        observation = Publishers.CombineLatest(model.$profiles, model.$phases)
             .receive(on: RunLoop.main)
-            .sink { [weak self, weak model] _ in
-                guard let self, let model else { return }
-                DispatchQueue.main.async {
-                    guard self.model === model else { return }
-                    self.refresh(using: model)
-                }
+            .sink { [weak self, weak model] _, _ in
+                guard let self, let model, self.model === model else { return }
+                self.refresh(using: model)
             }
         refresh(using: model)
     }
