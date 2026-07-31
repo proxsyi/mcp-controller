@@ -24,7 +24,7 @@ struct GatewayAccessView: View {
                     Spacer()
                     Toggle("Access control", isOn: $profile.exclusiveGatewayEnabled)
                         .labelsHidden()
-                                        }
+                }
 
                 if profile.exclusiveGatewayEnabled {
                     leaseSummary
@@ -44,20 +44,20 @@ struct GatewayAccessView: View {
                             TextField("39000", text: gatewayPortBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 120)
-                                                        }
+                        }
                         GridRow {
                             Text("Lease timeout").foregroundStyle(.secondary)
                             Stepper("\(profile.leaseTimeoutSeconds / 60) min", value: $profile.leaseTimeoutSeconds, in: 60...86_400, step: 60)
-                                                        }
+                        }
                         GridRow {
                             Text("Public request timeout").foregroundStyle(.secondary)
                             Stepper("\(profile.publicRequestTimeoutSeconds / 60) min", value: $profile.publicRequestTimeoutSeconds, in: 60...3_600, step: 60)
-                                                        }
+                        }
                         GridRow {
                             Text("Allowed origins").foregroundStyle(.secondary)
                             TextField("Optional, comma separated", text: $originText)
                                 .textFieldStyle(.roundedBorder)
-                                                        }
+                        }
                     }
                 }
 
@@ -119,7 +119,7 @@ struct GatewayAccessView: View {
                     TextField("Key name", text: $credential.name)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 160)
-                                            Text("••••••••\(credential.token.suffix(6))")
+                    Text("••••••••\(credential.token.suffix(6))")
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -132,7 +132,7 @@ struct GatewayAccessView: View {
                         profile.clientCredentials.removeAll { $0.id == credential.id }
                     }
                     .controlSize(.small)
-                                    }
+                }
             }
 
             HStack {
@@ -171,7 +171,7 @@ struct GatewayAccessView: View {
             get: { String(profile.gatewayPort) },
             set: { text in
                 let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) {
+                if let value = Int(digits), (1024...65535).contains(value) {
                     profile.gatewayPort = value
                 }
             }
