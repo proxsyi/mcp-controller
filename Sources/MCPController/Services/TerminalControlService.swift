@@ -5,6 +5,10 @@ struct TerminalControlRequest: Codable, Sendable {
     let action: String
     let target: String?
     let arguments: [String: String]
+
+    var shouldAcknowledgeBeforeHandling: Bool {
+        action.caseInsensitiveCompare("quit") == .orderedSame
+    }
 }
 
 struct TerminalControlResponse: Codable, Sendable {
@@ -85,10 +89,13 @@ final class TerminalControlService: @unchecked Sendable {
         Task { [weak self] in
             guard let self else { return }
             for request in requests {
+                if request.shouldAcknowledgeBeforeHandling {
+                    self.writeResponse(.ok("Quitting MCP Controller."), requestID: request.id)
+                    _ = await handler(request)
+                    continue
+                }
                 let response = await handler(request)
-                guard let output = try? JSONEncoder().encode(response) else { continue }
-                let destination = self.responsesURL.appending(path: request.id + ".json")
-                try? output.write(to: destination, options: .atomic)
+                self.writeResponse(response, requestID: request.id)
             }
             self.queue.async { [weak self] in
                 self?.isProcessingBatch = false
@@ -97,11 +104,14 @@ final class TerminalControlService: @unchecked Sendable {
         return true
     }
 
-    private func writeErrorResponse(_ message: String, for requestURL: URL) {
-        let response = TerminalControlResponse.error(message)
+    private func writeResponse(_ response: TerminalControlResponse, requestID: String) {
         guard let output = try? JSONEncoder().encode(response) else { return }
-        let destination = responsesURL.appending(path: requestURL.lastPathComponent)
+        let destination = responsesURL.appending(path: requestID + ".json")
         try? output.write(to: destination, options: .atomic)
+    }
+
+    private func writeErrorResponse(_ message: String, for requestURL: URL) {
+        writeResponse(.error(message), requestID: requestURL.deletingPathExtension().lastPathComponent)
     }
 
     private func sortedRequestURLs() -> [URL] {
