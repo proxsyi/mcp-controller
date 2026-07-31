@@ -3,12 +3,12 @@ import Foundation
 extension AppModel {
     func nextAvailableLocalPort(startingAt start: Int = 4100) -> Int {
         let used = Set(serverProfiles.map(\.localPort))
-        return (max(1024, start)...65535).first(where: { !used.contains($0) }) ?? max(4100, start)
+        return nextAvailablePort(startingAt: start, used: used, defaultStart: 4100)
     }
 
     func nextAvailableGatewayPort(startingAt start: Int = 39000) -> Int {
         let used = Set(serverProfiles.map(\.gatewayPort) + serverProfiles.map(\.localPort))
-        return (max(1024, start)...65535).first(where: { !used.contains($0) }) ?? max(39000, start)
+        return nextAvailablePort(startingAt: start, used: used, defaultStart: 39000)
     }
 
     func uniqueMountPath(for name: String) -> String {
@@ -131,5 +131,20 @@ extension AppModel {
         var paths = [current]
         if !current.hasSuffix("/mcp") { paths.append(current == "/" ? "/mcp" : current + "/mcp") }
         return Array(NSOrderedSet(array: paths)) as? [String] ?? paths
+    }
+
+    private func nextAvailablePort(startingAt start: Int, used: Set<Int>, defaultStart: Int) -> Int {
+        let clampedStart = min(max(1024, start), 65_535)
+
+        if let candidate = (clampedStart...65_535).first(where: { !used.contains($0) }) {
+            return candidate
+        }
+
+        if clampedStart > 1024,
+           let candidate = (1024..<(clampedStart)).first(where: { !used.contains($0) }) {
+            return candidate
+        }
+
+        return min(max(1024, defaultStart), 65_535)
     }
 }
