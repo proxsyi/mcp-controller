@@ -498,7 +498,10 @@ final class AppModel: ObservableObject {
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: profile) else { return }
         let result = try await CommandRunner.runAsync(executable: profile.tailscalePath, arguments: arguments)
         guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
-        tailscaleFunnelRunning = true; UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+        if profile.exposureMode == .funnel {
+            tailscaleFunnelRunning = true
+            UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+        }
     }
 
     private func exposureMessage(for profile: ServerProfile) -> String {
