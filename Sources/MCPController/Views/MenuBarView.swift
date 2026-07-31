@@ -4,6 +4,12 @@ import AppKit
 struct MenuBarView: View {
     @EnvironmentObject private var model: AppModel
 
+    private var menuHeight: CGFloat {
+        min(model.profiles.reduce(CGFloat(0)) { partial, profile in
+            partial + (profile.isServer ? 42 : profile.isHeading ? 24 : 12)
+        }, 280)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -18,11 +24,19 @@ struct MenuBarView: View {
             }
             Divider()
             if model.serverProfiles.isEmpty {
-                Label("No servers configured", systemImage: "server.rack").font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
+                Label("No servers configured", systemImage: "server.rack")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) { ForEach(model.serverProfiles) { serverRow($0) } }
-                }.frame(height: min(CGFloat(model.serverProfiles.count) * 44, 240))
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.profiles) { profile in
+                            menuRow(profile)
+                        }
+                    }
+                }
+                .frame(height: menuHeight)
                 Divider()
                 HStack(spacing: 8) {
                     Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }
@@ -36,7 +50,26 @@ struct MenuBarView: View {
                         .disabled(model.activeLeaseCount == 0)
                 }
             }
-        }.padding(10).frame(width: 390)
+        }
+        .padding(10)
+        .frame(width: 390)
+    }
+
+    @ViewBuilder
+    private func menuRow(_ profile: ServerProfile) -> some View {
+        if profile.isHeading {
+            Text(profile.name)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+        } else if profile.isSpacer {
+            Divider().padding(.vertical, 3)
+        } else {
+            serverRow(profile)
+        }
     }
 
     private func serverRow(_ profile: ServerProfile) -> some View {
@@ -71,7 +104,11 @@ struct MenuBarView: View {
                         if phase.isFailed {
                             let text = model.acknowledgeFailureAndReturnLogs(for: profile.id)
                             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
-                        } else if phase.isActive { model.stop(profile) } else { model.start(profile) }
+                        } else if phase.isActive {
+                            model.stop(profile)
+                        } else {
+                            model.start(profile)
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -79,14 +116,21 @@ struct MenuBarView: View {
                     .fixedSize()
                 }
             }
-        }.frame(height: 42)
+        }
+        .frame(height: 42)
     }
 
     private func subtitle(for profile: ServerProfile) -> String {
         let value = profile.description.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? model.phase(for: profile.id).title : value
     }
+
     private func statusColor(_ phase: RuntimePhase) -> Color {
-        switch phase { case .running: .green; case .starting, .stopping: .orange; case .failed: .red; case .stopped: .secondary }
+        switch phase {
+        case .running: .green
+        case .starting, .stopping: .orange
+        case .failed: .red
+        case .stopped: .secondary
+        }
     }
 }
