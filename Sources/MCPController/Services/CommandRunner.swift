@@ -7,6 +7,24 @@ struct CommandResult: Sendable {
     let exitCode: Int32
 }
 
+private final class CommandOutputCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func store(_ value: Data) {
+        lock.lock()
+        data = value
+        lock.unlock()
+    }
+
+    func snapshot() -> Data {
+        lock.lock()
+        let value = data
+        lock.unlock()
+        return value
+    }
+}
+
 enum CommandRunner {
     static func runAsync(executable: String, arguments: [String], timeout: TimeInterval? = nil) async throws -> CommandResult {
         try await Task.detached(priority: .utility) {
@@ -27,27 +45,19 @@ enum CommandRunner {
         process.terminationHandler = { _ in completion.signal() }
         try process.run()
 
-        var outputData = Data()
-        var errorData = Data()
-        let outputLock = NSLock()
-        let errorLock = NSLock()
+        let outputCapture = CommandOutputCapture()
+        let errorCapture = CommandOutputCapture()
         let readers = DispatchGroup()
 
         readers.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            outputData = data
-            outputLock.unlock()
+            outputCapture.store(outputPipe.fileHandleForReading.readDataToEndOfFile())
             readers.leave()
         }
 
         readers.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            errorLock.lock()
-            errorData = data
-            errorLock.unlock()
+            errorCapture.store(errorPipe.fileHandleForReading.readDataToEndOfFile())
             readers.leave()
         }
 
@@ -73,14 +83,8 @@ enum CommandRunner {
             readers.wait()
         }
 
-        outputLock.lock()
-        let capturedOutput = outputData
-        outputLock.unlock()
-        errorLock.lock()
-        let capturedError = errorData
-        errorLock.unlock()
-        let output = String(decoding: capturedOutput, as: UTF8.self)
-        let error = String(decoding: capturedError, as: UTF8.self)
+        let output = String(decoding: outputCapture.snapshot(), as: UTF8.self)
+        let error = String(decoding: errorCapture.snapshot(), as: UTF8.self)
 
         if timedOut {
             throw CommandRunnerError.timedOut(executable: executable, arguments: arguments, output: output, error: error)
