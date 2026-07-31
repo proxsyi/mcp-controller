@@ -99,7 +99,7 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
               var result = object["result"] as? [String: Any],
               result["protocolVersion"] is String else { return nil }
         var capabilities = result["capabilities"] as? [String: Any] ?? [:]
-        let upstreamCapabilities = Set(capabilities.keys)
+        let upstreamCapabilities = Set(capabilities.keys).union([GatewayOptionalDiscoveryFallback.initializedSessionMarker])
         if capabilities["prompts"] == nil { capabilities["prompts"] = [:] }
         if capabilities["resources"] == nil { capabilities["resources"] = [:] }
         result["capabilities"] = capabilities
@@ -120,7 +120,7 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let result = object["result"] as? [String: Any],
                   let capabilities = result["capabilities"] as? [String: Any] else { continue }
-            return Set(capabilities.keys)
+            return Set(capabilities.keys).union([GatewayOptionalDiscoveryFallback.initializedSessionMarker])
         }
         return nil
     }
