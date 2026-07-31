@@ -867,20 +867,23 @@ enum GatewayRouteMapper {
     }
 
     static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
+        let pieces = requestTarget.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pieces.isEmpty ? "/" : String(pieces[0])
+        let query = pieces.count > 1 ? "?" + String(pieces[1]) : ""
         let mount = profile.normalizedMountPath
         let endpoint = profile.streamableHTTPPath ?? "/"
 
-        if requestTarget == "/" || requestTarget == mount {
-            return endpoint
+        if path == "/" || path == mount {
+            return endpoint + query
         }
         if mount != "/" {
             let prefix = mount + "/"
-            if requestTarget.hasPrefix(prefix) {
-                let stripped = String(requestTarget.dropFirst(mount.count))
-                return stripped.isEmpty ? endpoint : stripped
+            if path.hasPrefix(prefix) {
+                let stripped = String(path.dropFirst(mount.count))
+                return (stripped.isEmpty ? endpoint : stripped) + query
             }
         }
-        return requestTarget
+        return path + query
     }
 }
 
