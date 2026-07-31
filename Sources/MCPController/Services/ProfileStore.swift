@@ -1,6 +1,6 @@
 import Foundation
 
-struct ProfileStore {
+final class ProfileStore: @unchecked Sendable {
     private let fileManager = FileManager.default
     private let saveQueue = DispatchQueue(label: "com.versyi.mcp-controller.profile-store")
 
@@ -17,27 +17,35 @@ struct ProfileStore {
     }
 
     func save(_ profiles: [ServerProfile]) throws {
-        let directory = configurationURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(profiles).write(to: configurationURL, options: .atomic)
+        var capturedError: Error?
+        saveQueue.sync {
+            do {
+                try writeProfiles(profiles)
+            } catch {
+                capturedError = error
+            }
+        }
+        if let capturedError {
+            throw capturedError
+        }
     }
 
     func saveAsync(_ profiles: [ServerProfile], completion: @escaping @Sendable (Error?) -> Void) {
-        let url = configurationURL
-        let fileManager = self.fileManager
-        saveQueue.async {
+        saveQueue.async { [self] in
             do {
-                let directory = url.deletingLastPathComponent()
-                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                try encoder.encode(profiles).write(to: url, options: .atomic)
+                try writeProfiles(profiles)
                 completion(nil)
             } catch {
                 completion(error)
             }
         }
+    }
+
+    private func writeProfiles(_ profiles: [ServerProfile]) throws {
+        let directory = configurationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(profiles).write(to: configurationURL, options: .atomic)
     }
 }
