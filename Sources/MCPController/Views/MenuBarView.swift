@@ -10,6 +10,14 @@ struct MenuBarView: View {
         }, 280)
     }
 
+    private var startingCount: Int {
+        model.serverProfiles.filter { model.phase(for: $0.id) == .starting }.count
+    }
+
+    private var stoppingCount: Int {
+        model.serverProfiles.filter { model.phase(for: $0.id) == .stopping }.count
+    }
+
     private var statusSummary: String {
         if model.failedCount > 0 {
             return "\(model.failedCount) failed"
@@ -17,8 +25,17 @@ struct MenuBarView: View {
         if model.runningCount > 0 {
             return "\(model.runningCount) running"
         }
+        if startingCount > 0 && stoppingCount > 0 {
+            return "\(model.activeCount) active"
+        }
+        if startingCount > 0 {
+            return "\(startingCount) starting"
+        }
+        if stoppingCount > 0 {
+            return "\(stoppingCount) stopping"
+        }
         if model.activeCount > 0 {
-            return "\(model.activeCount) starting"
+            return "\(model.activeCount) active"
         }
         return "Stopped"
     }
