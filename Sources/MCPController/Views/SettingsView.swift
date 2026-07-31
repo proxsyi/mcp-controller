@@ -57,10 +57,10 @@ struct SettingsView: View {
             VStack(spacing: 18) {
                 settingsCard(title: "Overview", symbol: "server.rack") {
                     HStack(spacing: 18) {
-                        metric("Configured", model.profiles.count, .secondary)
+                        metric("Configured", model.serverProfiles.count, .secondary)
                         metric("Running", model.runningCount, .green)
                         metric("Failed", model.failedCount, .red)
-                        metric("Remote", model.profiles.filter(\.tailscaleRouteEnabled).count, .blue)
+                        metric("Remote", model.serverProfiles.filter(\.tailscaleRouteEnabled).count, .blue)
                     }
                 }
 

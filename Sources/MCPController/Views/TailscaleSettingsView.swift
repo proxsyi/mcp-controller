@@ -6,11 +6,17 @@ struct TailscaleSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
 
+    private var serverIndices: [Int] {
+        model.profiles.indices.filter { model.profiles[$0].isServer }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 globalControl
-                ForEach($model.profiles) { $profile in routeRow(profile: $profile) }
+                ForEach(serverIndices, id: \.self) { index in
+                    routeRow(profile: $model.profiles[index])
+                }
             }
             .padding(22)
         }
@@ -39,10 +45,7 @@ struct TailscaleSettingsView: View {
                     .font(.caption).foregroundStyle(dnsName.isEmpty ? .orange : .green)
                 Spacer()
                 Button("Use Default CLI for All") {
-                    for var profile in model.profiles {
-                        profile.tailscalePath = TailscaleRouteService.defaultCLIPath
-                        model.update(profile)
-                    }
+                    model.applyDefaultTailscaleCLIToAllProfiles()
                     refreshDNS()
                 }
                 .controlSize(.small)
@@ -123,7 +126,7 @@ struct TailscaleSettingsView: View {
         dnsName.isEmpty ? "Address available when Tailscale is connected" : TailscaleRouteService.address(for: profile, dnsName: dnsName)
     }
     private func refreshDNS() {
-        let path = model.profiles.first?.tailscalePath ?? TailscaleRouteService.defaultCLIPath
+        let path = model.serverProfiles.first?.tailscalePath ?? TailscaleRouteService.defaultCLIPath
         dnsName = TailscaleRouteService.dnsName(cliPath: path) ?? ""
     }
 }
