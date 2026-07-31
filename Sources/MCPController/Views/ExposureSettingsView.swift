@@ -8,6 +8,7 @@ struct ExposureSettingsView: View {
     let persistLiveChange: (ServerProfile) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
+    @State private var dnsRefreshToken = UUID()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -283,6 +284,13 @@ struct ExposureSettingsView: View {
     }
 
     private func refreshDNS() {
-        dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? ""
+        let token = UUID()
+        dnsRefreshToken = token
+        let cliPath = profile.tailscalePath
+        Task { @MainActor in
+            let value = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath) ?? ""
+            guard dnsRefreshToken == token else { return }
+            dnsName = value
+        }
     }
 }

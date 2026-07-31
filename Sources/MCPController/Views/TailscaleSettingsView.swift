@@ -5,6 +5,7 @@ struct TailscaleSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
+    @State private var dnsRefreshToken = UUID()
 
     private var serverIndices: [Int] {
         model.profiles.indices.filter { model.profiles[$0].isServer }
@@ -174,7 +175,13 @@ struct TailscaleSettingsView: View {
     }
 
     private func refreshDNS() {
+        let token = UUID()
+        dnsRefreshToken = token
         let path = model.serverProfiles.first?.tailscalePath ?? TailscaleRouteService.defaultCLIPath
-        dnsName = TailscaleRouteService.dnsName(cliPath: path) ?? ""
+        Task { @MainActor in
+            let value = await TailscaleRouteService.dnsNameAsync(cliPath: path) ?? ""
+            guard dnsRefreshToken == token else { return }
+            dnsName = value
+        }
     }
 }
