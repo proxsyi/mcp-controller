@@ -248,10 +248,15 @@ struct ServerDetailView: View {
                         }
                     }
 
-                    settingTile("Remote path", detail: draft.tailscaleRouteEnabled ? "Used when remote access is on" : "Used the next time remote access is enabled", symbol: "point.3.connected.trianglepath.dotted") {
+                    settingTile(
+                        "Remote path",
+                        detail: draft.tailscaleRouteEnabled ? "Change the live route from the Access tab while remote access is on" : "Used the next time remote access is enabled",
+                        symbol: "point.3.connected.trianglepath.dotted"
+                    ) {
                         TextField("/mcp/server", text: $draft.mountPath)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.subheadline, design: .monospaced))
+                            .disabled(draft.tailscaleRouteEnabled)
                     }
 
                     settingTile("Start at launch", detail: draft.autoStart ? "Starts when MCP Controller opens" : "Stays stopped until you start it", symbol: draft.autoStart ? "play.circle.fill" : "pause.circle") {
