@@ -68,10 +68,16 @@ class Client:
         except urllib.error.HTTPError as error:
             assert error.code in (200, 202, 204), f"initialized notification returned HTTP {error.code}"
 
-def token_for(profile: dict) -> str:
+def token_for(profile: dict, preferred_name: str | None = None) -> str:
     credentials = profile.get("clientCredentials", [])
     if not credentials: raise AssertionError("No client credentials configured")
-    return next((item["token"] for item in credentials if item.get("name", "").lower() == "notion"), credentials[0]["token"])
+    if preferred_name:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == preferred_name.casefold()), None)
+        if not credential:
+            raise AssertionError(f"Credential {preferred_name!r} not found")
+        return credential["token"]
+    notion = next((item for item in credentials if item.get("name", "").lower() == "notion"), None)
+    return (notion or credentials[0])["token"]
 
 def server_profiles(profiles: list[dict]) -> list[dict]:
     return [profile for profile in profiles if profile.get("kind", "server") == "server"]
@@ -100,6 +106,7 @@ def main() -> int:
     ap.add_argument("--skip-tool-calls", action="store_true")
     ap.add_argument("--only", action="append", help="Run one named profile; repeatable")
     ap.add_argument("--local", action="store_true", help="Test local upstream endpoints instead of public routes")
+    ap.add_argument("--credential", help="Credential name to use when a profile has multiple access keys")
     args = ap.parse_args()
     profiles = {p["id"].upper(): p for p in server_profiles(json.load(open(args.config)))}
     base_url = None if args.local else public_base_url(list(profiles.values()), args.base_url)
@@ -114,7 +121,7 @@ def main() -> int:
             assert p["name"] == spec["name"], f"name is {p['name']!r}"
             assert p.get("description") == spec["description"], f"description is {p.get('description')!r}"
             url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else base_url + mount_path(p)
-            client = Client(url, token_for(p), args.timeout)
+            client = Client(url, token_for(p, args.credential), args.timeout)
             client.initialize()
             status, body = client.post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
             assert status == 200

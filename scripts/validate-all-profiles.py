@@ -75,10 +75,15 @@ class MCPClient:
                 called = name; break
         return len(names), called
 
-def token_for(profile: dict) -> str:
+def token_for(profile: dict, preferred_name: str | None = None) -> str:
     credentials = profile.get("clientCredentials") or []
     assert credentials, "no gateway credential configured"
-    return next((c["token"] for c in credentials if c.get("name", "").lower() == "notion"), credentials[0]["token"])
+    if preferred_name:
+        selected = next((c for c in credentials if c.get("name", "").casefold() == preferred_name.casefold()), None)
+        assert selected, f"credential {preferred_name!r} was not found"
+        return selected["token"]
+    notion = next((c for c in credentials if c.get("name", "").lower() == "notion"), None)
+    return (notion or credentials[0])["token"]
 
 def server_profiles(profiles: list[dict]) -> list[dict]:
     return [profile for profile in profiles if profile.get("kind", "server") == "server"]
@@ -106,6 +111,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--catalog-only", action="store_true")
     parser.add_argument("--skip", action="append", default=[], help="Profile name to skip (repeatable)")
+    parser.add_argument("--credential", help="Credential name to use when a profile has multiple access keys")
     args = parser.parse_args()
     profiles = json.loads(pathlib.Path(args.config).read_text())
     servers = server_profiles(profiles)
@@ -116,7 +122,7 @@ def main() -> int:
             print(json.dumps({"name": profile["name"], "status": "skipped"}), flush=True)
             continue
         row = {"name": profile["name"], "surfaces": {}}
-        token = token_for(profile)
+        token = token_for(profile, args.credential)
         surfaces = {"gateway": f"http://127.0.0.1:{profile['gatewayPort']}/"}
         if public_surface_enabled(profile):
             surfaces["public"] = public_url(dns, profile)
