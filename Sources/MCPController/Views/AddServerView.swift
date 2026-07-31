@@ -13,13 +13,13 @@ struct AddServerView: View {
     private var resolvedLocalPort: Int? {
         let trimmed = localPortText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return suggestedPort }
-        guard let port = Int(trimmed), (1...65535).contains(port) else { return nil }
+        guard let port = Int(trimmed), (1024...65535).contains(port) else { return nil }
         return port
     }
     private var canAdd: Bool {
         !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !profile.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedLocalPort != nil &&
-        !model.profiles.contains(where: { $0.localPort == resolvedLocalPort })
+        !model.serverProfiles.contains(where: { $0.localPort == resolvedLocalPort })
     }
 
     var body: some View {
@@ -47,7 +47,7 @@ struct AddServerView: View {
                                 TextField(String(suggestedPort), text: $localPortText).textFieldStyle(.roundedBorder).frame(width: 110)
                                     .onChange(of: localPortText) { _, value in localPortText = value.filter(\.isNumber) }
                             }
-                            Text(localPortText.isEmpty ? "Suggested available port: \(suggestedPort)" : "The server will listen on this Mac only until you configure exposure.")
+                            Text(localPortText.isEmpty ? "Suggested available port: \(suggestedPort)" : "Use port 1024 or higher. The server will listen on this Mac only until you configure exposure.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -59,7 +59,7 @@ struct AddServerView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add Server", systemImage: "plus") {
                         profile.localPort = resolvedLocalPort ?? suggestedPort
-                        profile.gatewayPort = model.nextAvailableGatewayPort()
+                        profile.gatewayPort = model.nextAvailableGatewayPort(startingAt: min(profile.localPort + 1, 65_535))
                         profile.mountPath = model.uniqueMountPath(for: profile.name)
                         profile.tailscalePath = TailscaleRouteService.defaultCLIPath
                         model.add(profile); dismiss()
@@ -71,13 +71,14 @@ struct AddServerView: View {
         .onAppear {
             guard !appliedDefaults else { return }
             appliedDefaults = true
-            suggestedPort = model.nextAvailableLocalPort()
-            profile.localPort = suggestedPort
-            profile.gatewayPort = model.nextAvailableGatewayPort()
+            profile = model.defaultProfileTemplate()
+            suggestedPort = profile.localPort
             profile.tailscalePath = TailscaleRouteService.defaultCLIPath
             if settings.oneAIOnly {
                 profile.exclusiveGatewayEnabled = true
-                profile.clientCredentials = [.generate(name: "Primary AI")]
+                if profile.clientCredentials.isEmpty {
+                    profile.clientCredentials = [.generate(name: "Primary AI")]
+                }
             }
         }
     }

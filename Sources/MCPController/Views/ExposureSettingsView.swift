@@ -112,7 +112,7 @@ struct ExposureSettingsView: View {
                     Spacer()
                     Toggle("Remote client compatibility", isOn: compatibilityBinding)
                         .labelsHidden()
-                                        }
+                }
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     GridRow { Text("Status").foregroundStyle(.secondary); statusLine }
