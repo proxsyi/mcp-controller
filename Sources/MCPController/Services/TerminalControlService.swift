@@ -22,6 +22,7 @@ final class TerminalControlService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.versyi.mcp-controller.terminal-control")
     private var handler: Handler?
     private var isRunning = false
+    private var isProcessingBatch = false
 
     private let activePollInterval: TimeInterval = 0.1
     private let idlePollInterval: TimeInterval = 0.75
@@ -57,27 +58,42 @@ final class TerminalControlService: @unchecked Sendable {
     @discardableResult
     private func processRequests() -> Bool {
         guard let handler else { return false }
+        if isProcessingBatch { return true }
 
         let urls = sortedRequestURLs()
         guard !urls.isEmpty else { return false }
 
+        var requests: [TerminalControlRequest] = []
         var processedAny = false
         for url in urls where url.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: url), let request = try? JSONDecoder().decode(TerminalControlRequest.self, from: data) else {
+            defer {
                 try? FileManager.default.removeItem(at: url)
+            }
+            guard let data = try? Data(contentsOf: url),
+                  let request = try? JSONDecoder().decode(TerminalControlRequest.self, from: data) else {
                 processedAny = true
                 continue
             }
-            try? FileManager.default.removeItem(at: url)
+            requests.append(request)
             processedAny = true
-            Task {
+        }
+        guard processedAny else { return false }
+        guard !requests.isEmpty else { return true }
+
+        isProcessingBatch = true
+        Task { [weak self] in
+            guard let self else { return }
+            for request in requests {
                 let response = await handler(request)
-                guard let output = try? JSONEncoder().encode(response) else { return }
-                let destination = responsesURL.appending(path: request.id + ".json")
+                guard let output = try? JSONEncoder().encode(response) else { continue }
+                let destination = self.responsesURL.appending(path: request.id + ".json")
                 try? output.write(to: destination, options: .atomic)
             }
+            self.queue.async { [weak self] in
+                self?.isProcessingBatch = false
+            }
         }
-        return processedAny
+        return true
     }
 
     private func sortedRequestURLs() -> [URL] {
