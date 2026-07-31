@@ -6,6 +6,7 @@ CONFIG="${MCP_CONFIG:-$HOME/Library/Application Support/MCP Controller/servers.j
 REPORT="${MCP_REPORT:-$HOME/Desktop/notion-mcp-validation-report-$TIMESTAMP.txt}"
 REPO="${MCP_CONTROLLER_REPO:-$HOME/Projects/Clients/Versyi/MCP-Controller}"
 APP="${MCP_CONTROLLER_APP:-/Applications/MCP Controller.app}"
+APP_EXECUTABLE="$APP/Contents/MacOS/MCPController"
 WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
 DEFAULT_ORIGIN="https://www."
 DEFAULT_ORIGIN+="notion.so"
@@ -42,7 +43,7 @@ if not profile:
 if not profile:
     raise SystemExit("No suitable remote profile found")
 
-client_name = os.environ.get("MCP_CLIENT", "").strip()
+client_name = os.environ.get("MCP_CLIENT", "").strip() or os.environ.get("MCP_CREDENTIAL", "").strip()
 credential = None
 if client_name:
     credential = next((c for c in profile.get("clientCredentials", []) if c.get("name", "").casefold() == client_name.casefold()), None)
@@ -89,7 +90,7 @@ echo "Gateway port: $GATEWAY"
 echo "Upstream port: $UPSTREAM"
 echo "Installed version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo missing)"
 echo "Installed executable:"
-pgrep -fl '/MCP Controller.app/Contents/MacOS/MCPController' || true
+pgrep -fl "$APP_EXECUTABLE" || true
 echo "App bundles:"
 find /Applications "$HOME/Applications" "$REPO/dist" -maxdepth 2 -name 'MCP Controller.app' -print 2>/dev/null || true
 echo "Listeners:"
