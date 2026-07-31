@@ -38,12 +38,43 @@ final class StatusBarController: NSObject, ObservableObject {
     }
 
     private func updateButton(using model: AppModel) {
-        guard let button = statusItem?.button else { return }
+        guard let statusItem, let button = statusItem.button else { return }
         let count = model.runningCount
+        let activeCount = model.serverProfiles.filter { model.phase(for: $0.id).isActive }.count
         button.image = NSImage(systemSymbolName: count > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle", accessibilityDescription: "MCP Controller")
-        button.imagePosition = .imageLeft
-        button.title = count > 0 ? " \(count)" : ""
-        button.toolTip = count == 0 ? "MCP Controller — no servers running" : "MCP Controller — \(count) servers running"
+        button.imagePosition = .imageLeading
+        button.attributedTitle = badgeTitle(count: count)
+        button.title = count > 0 ? String(count) : ""
+        button.toolTip = tooltip(runningCount: count, activeCount: activeCount, failedCount: model.failedCount)
+        statusItem.length = NSStatusItem.variableLength
+    }
+
+    private func badgeTitle(count: Int) -> NSAttributedString {
+        guard count > 0 else { return NSAttributedString(string: "") }
+        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        return NSAttributedString(
+            string: " \(count)",
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor
+            ]
+        )
+    }
+
+    private func tooltip(runningCount: Int, activeCount: Int, failedCount: Int) -> String {
+        if runningCount == 0 {
+            if failedCount > 0 {
+                return "MCP Controller — no servers running, \(failedCount) failed"
+            }
+            if activeCount > 0 {
+                return "MCP Controller — starting or stopping \(activeCount) servers"
+            }
+            return "MCP Controller — no servers running"
+        }
+        if failedCount > 0 {
+            return "MCP Controller — \(runningCount) running, \(failedCount) failed"
+        }
+        return "MCP Controller — \(runningCount) servers running"
     }
 
     @objc
