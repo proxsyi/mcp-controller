@@ -32,7 +32,8 @@ final class AppModel: ObservableObject {
     var onInstallUpdate: (() -> String)?
 
     var serverProfiles: [ServerProfile] { profiles.filter(\.isServer) }
-    var runningCount: Int { serverProfiles.filter { phase(for: $0.id).isActive }.count }
+    var runningCount: Int { serverProfiles.filter { phase(for: $0.id) == .running }.count }
+    var activeCount: Int { serverProfiles.filter { phase(for: $0.id).isActive }.count }
     var failedCount: Int { serverProfiles.filter { phase(for: $0.id).isFailed }.count }
     var activeLeaseCount: Int { gatewayLeases.count }
 
@@ -431,7 +432,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopAll() {
-        let queue = serverProfiles.map(\.id).filter { phase(for: $0).isActive }
+        let queue = serverProfiles.map(\.id).filter { phase(for: $0.id).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
         isProcessingBulkLifecycleAction = true
