@@ -65,7 +65,8 @@ final class AppModel: ObservableObject {
             Task { @MainActor [weak self] in await self?.bootstrapRuntime() }
         } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
         terminalControl.start { [weak self] request in
-            await MainActor.run { self?.handleTerminalCommand(request) ?? .error("MCP Controller is unavailable.") }
+            guard let self else { return .error("MCP Controller is unavailable.") }
+            return await self.handleTerminalCommand(request)
         }
     }
 
@@ -239,7 +240,18 @@ final class AppModel: ObservableObject {
             persist()
             return
         }
-        if profile.tailscaleRouteEnabled { _ = stopTailscaleRoute(profile) }
+        if profile.tailscaleRouteEnabled {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.stopTailscaleRoute(profile)
+                self.finishRemoval(of: profile)
+            }
+            return
+        }
+        finishRemoval(of: profile)
+    }
+
+    private func finishRemoval(of profile: ServerProfile) {
         stop(profile) { [weak self] in
             guard let self else { return }
             self.profiles.removeAll { $0.id == profile.id }

@@ -31,7 +31,7 @@ struct TailscaleSettingsView: View {
         }
         .onChange(of: focusedRouteID) { previous, current in
             if let previous, previous != current {
-                commitMountPath(profileID: previous)
+                Task { await commitMountPath(profileID: previous) }
             }
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.tailscaleFunnelRunning)
@@ -47,8 +47,7 @@ struct TailscaleSettingsView: View {
                 }
                 Spacer()
                 Button(model.tailscaleFunnelRunning ? "Stop Funnel" : "Start Funnel", systemImage: model.tailscaleFunnelRunning ? "stop.fill" : "play.fill") {
-                    if model.tailscaleFunnelRunning { model.stopTailscaleFunnel() } else { model.startTailscaleFunnel() }
-                    refreshDNS()
+                    Task { if model.tailscaleFunnelRunning { await model.stopTailscaleFunnel() } else { await model.startTailscaleFunnel() }; refreshDNS() }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(model.tailscaleFunnelRunning ? .red : .blue)
@@ -80,7 +79,7 @@ struct TailscaleSettingsView: View {
                 Spacer()
                 Toggle("Remote access", isOn: Binding(
                     get: { profile.wrappedValue.tailscaleRouteEnabled },
-                    set: { enabled in configure(profile: profile, enabled: enabled) }
+                    set: { enabled in Task { await configure(profile: profile, enabled: enabled) } }
                 )).toggleStyle(.switch)
             }
 
@@ -105,7 +104,7 @@ struct TailscaleSettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .focused($focusedRouteID, equals: value.id)
                             .onSubmit {
-                                commitMountPath(profileID: value.id)
+                                Task { await commitMountPath(profileID: value.id) }
                                 focusedRouteID = nil
                             }
                     }
@@ -124,7 +123,7 @@ struct TailscaleSettingsView: View {
         .padding(14).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    private func configure(profile: Binding<ServerProfile>, enabled: Bool) {
+    private func configure(profile: Binding<ServerProfile>, enabled: Bool) async {
         var value = profile.wrappedValue
         if enabled {
             value.tailscaleRouteEnabled = true
@@ -133,12 +132,12 @@ struct TailscaleSettingsView: View {
             if value.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: value.tailscalePath) {
                 value.tailscalePath = TailscaleRouteService.defaultCLIPath
             }
-            if model.startTailscaleRoute(value) {
+            if await model.startTailscaleRoute(value) {
                 profile.wrappedValue = value
                 mountPathDrafts[value.id] = value.mountPath
             }
         } else {
-            if model.stopTailscaleRoute(value) {
+            if await model.stopTailscaleRoute(value) {
                 value.tailscaleRouteEnabled = false
                 profile.wrappedValue = value
             }
@@ -152,7 +151,7 @@ struct TailscaleSettingsView: View {
             set: { value in
                 var updated = profile.wrappedValue
                 updated.exposureMode = value
-                applyRouteConfigurationChange(updated, to: profile)
+                Task { await applyRouteConfigurationChange(updated, to: profile) }
             }
         )
     }
@@ -163,7 +162,7 @@ struct TailscaleSettingsView: View {
             set: { value in
                 var updated = profile.wrappedValue
                 updated.publicPort = value
-                applyRouteConfigurationChange(updated, to: profile)
+                Task { await applyRouteConfigurationChange(updated, to: profile) }
             }
         )
     }
@@ -176,9 +175,9 @@ struct TailscaleSettingsView: View {
         )
     }
 
-    private func applyRouteConfigurationChange(_ updated: ServerProfile, to profile: Binding<ServerProfile>) {
+    private func applyRouteConfigurationChange(_ updated: ServerProfile, to profile: Binding<ServerProfile>) async {
         if updated.tailscaleRouteEnabled {
-            if model.startTailscaleRoute(updated) {
+            if await model.startTailscaleRoute(updated) {
                 profile.wrappedValue = updated
                 mountPathDrafts[updated.id] = updated.mountPath
             }
@@ -190,7 +189,7 @@ struct TailscaleSettingsView: View {
         refreshDNS()
     }
 
-    private func commitMountPath(profileID: UUID) {
+    private func commitMountPath(profileID: UUID) async {
         guard let index = model.profiles.firstIndex(where: { $0.id == profileID && $0.isServer }) else {
             mountPathDrafts.removeValue(forKey: profileID)
             return
@@ -202,7 +201,7 @@ struct TailscaleSettingsView: View {
         var updated = current
         updated.mountPath = draft
         if updated.tailscaleRouteEnabled {
-            if model.startTailscaleRoute(updated) {
+            if await model.startTailscaleRoute(updated) {
                 model.profiles[index] = updated
                 mountPathDrafts[profileID] = updated.mountPath
             } else {

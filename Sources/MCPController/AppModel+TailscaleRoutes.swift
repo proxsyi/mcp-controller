@@ -22,7 +22,12 @@ extension AppModel {
         return "\(base)-\(suffix)"
     }
 
-    func startTailscaleFunnel() {
+    func startTailscaleFunnel() async {
+        guard TailscaleMutationCoordinator.shared.begin() else {
+            presentedError = "Another Tailscale change is already in progress."
+            return
+        }
+        defer { TailscaleMutationCoordinator.shared.end() }
         presentedError = nil
         let routes = serverProfiles.filter { $0.tailscaleRouteEnabled && $0.exposureMode == .funnel }
         guard !routes.isEmpty else {
@@ -40,9 +45,9 @@ extension AppModel {
                 failures.append("\(profile.name): Tailscale CLI or route configuration is invalid")
                 continue
             }
-            _ = removeManagedRoutes(for: profile)
+            _ = await removeManagedRoutes(for: profile)
             do {
-                let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                let result = try await CommandRunner.runAsync(executable: profile.tailscalePath, arguments: arguments, timeout: 30)
                 if result.exitCode == 0 { started += 1 }
                 else { failures.append("\(profile.name): \(result.error.isEmpty ? result.output : result.error)") }
             } catch { failures.append("\(profile.name): \(error.localizedDescription)") }
@@ -53,11 +58,16 @@ extension AppModel {
         if !failures.isEmpty { presentedError = "Some Tailscale routes could not start:\n" + failures.joined(separator: "\n") }
     }
 
-    func stopTailscaleFunnel() {
+    func stopTailscaleFunnel() async {
+        guard TailscaleMutationCoordinator.shared.begin() else {
+            presentedError = "Another Tailscale change is already in progress."
+            return
+        }
+        defer { TailscaleMutationCoordinator.shared.end() }
         presentedError = nil
         var failures: [String] = []
         for profile in serverProfiles where profile.tailscaleRouteEnabled && profile.exposureMode == .funnel {
-            let errors = removeManagedRoutes(for: profile)
+            let errors = await removeManagedRoutes(for: profile)
             failures.append(contentsOf: errors.map { "\(profile.name): \($0)" })
         }
         tailscaleFunnelRunning = false
@@ -66,7 +76,12 @@ extension AppModel {
     }
 
     @discardableResult
-    func startTailscaleRoute(_ profile: ServerProfile) -> Bool {
+    func startTailscaleRoute(_ profile: ServerProfile) async -> Bool {
+        guard TailscaleMutationCoordinator.shared.begin() else {
+            presentedError = "Another Tailscale change is already in progress."
+            return false
+        }
+        defer { TailscaleMutationCoordinator.shared.end() }
         presentedError = nil
         guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath) else { presentedError = "Tailscale CLI was not found at \(profile.tailscalePath)."; return false }
         if let conflict = serverProfiles.first(where: { $0.id != profile.id && $0.tailscaleRouteEnabled && $0.publicPort == profile.publicPort && $0.normalizedMountPath == profile.normalizedMountPath }) {
@@ -76,9 +91,9 @@ extension AppModel {
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: configured) else { presentedError = "Choose Tailnet or Public Funnel before starting the route."; return false }
 
         let previous = profiles.first(where: { $0.id == configured.id && $0.tailscaleRouteEnabled })
-        _ = removeManagedRoutes(for: configured)
+        _ = await removeManagedRoutes(for: configured)
         do {
-            let result = try CommandRunner.run(executable: configured.tailscalePath, arguments: arguments)
+            let result = try await CommandRunner.runAsync(executable: configured.tailscalePath, arguments: arguments, timeout: 30)
             guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
             update(configured)
             if configured.exposureMode == .funnel {
@@ -87,7 +102,7 @@ extension AppModel {
             }
             return true
         } catch {
-            let restored = restorePreviousRoute(previous)
+            let restored = await restorePreviousRoute(previous)
             let restoreNote = restored ? " The previous route was restored." : ""
             presentedError = "Could not start the Tailscale route for \(profile.name): \(error.localizedDescription)\(restoreNote)"
             return false
@@ -95,9 +110,14 @@ extension AppModel {
     }
 
     @discardableResult
-    func stopTailscaleRoute(_ profile: ServerProfile) -> Bool {
+    func stopTailscaleRoute(_ profile: ServerProfile) async -> Bool {
+        guard TailscaleMutationCoordinator.shared.begin() else {
+            presentedError = "Another Tailscale change is already in progress."
+            return false
+        }
+        defer { TailscaleMutationCoordinator.shared.end() }
         presentedError = nil
-        let errors = removeManagedRoutes(for: profile)
+        let errors = await removeManagedRoutes(for: profile)
         guard errors.isEmpty else {
             presentedError = "Could not remove the Tailscale route for \(profile.name): \(errors.joined(separator: "; "))"
             return false
@@ -112,14 +132,14 @@ extension AppModel {
         return true
     }
 
-    private func restorePreviousRoute(_ previous: ServerProfile?) -> Bool {
+    private func restorePreviousRoute(_ previous: ServerProfile?) async -> Bool {
         guard let previous,
               TailscaleRouteService.isCLIAvailable(at: previous.tailscalePath),
               let restoreArguments = TailscaleCommandBuilder.enableArguments(for: previous) else {
             return false
         }
         do {
-            let result = try CommandRunner.run(executable: previous.tailscalePath, arguments: restoreArguments)
+            let result = try await CommandRunner.runAsync(executable: previous.tailscalePath, arguments: restoreArguments, timeout: 30)
             guard result.exitCode == 0 else { return false }
             if previous.exposureMode == .funnel {
                 tailscaleFunnelRunning = true
@@ -134,13 +154,13 @@ extension AppModel {
         }
     }
 
-    private func removeManagedRoutes(for profile: ServerProfile) -> [String] {
+    private func removeManagedRoutes(for profile: ServerProfile) async -> [String] {
         let paths = managedRoutePaths(for: profile)
         var failures: [String] = []
         for path in paths {
             for arguments in TailscaleCommandBuilder.allRemoveArgumentSets(for: profile, mountPath: path) {
                 do {
-                    let result = try CommandRunner.run(executable: profile.tailscalePath, arguments: arguments)
+                    let result = try await CommandRunner.runAsync(executable: profile.tailscalePath, arguments: arguments, timeout: 30)
                     let message = (result.error + result.output).lowercased()
                     if result.exitCode != 0 &&
                         !message.contains("handler does not exist") &&

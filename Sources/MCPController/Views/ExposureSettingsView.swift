@@ -30,7 +30,7 @@ struct ExposureSettingsView: View {
             if !routePathIsFocused { mountPathText = value }
         }
         .onChange(of: routePathIsFocused) { _, focused in
-            if !focused { commitMountPath() }
+            if !focused { Task { await commitMountPath() } }
         }
     }
 
@@ -81,7 +81,7 @@ struct ExposureSettingsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
                                 .focused($routePathIsFocused)
-                                .onSubmit { commitMountPath() }
+                                .onSubmit { Task { await commitMountPath() } }
                                 .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
@@ -201,7 +201,7 @@ struct ExposureSettingsView: View {
     }
 
     private var remoteAccessBinding: Binding<Bool> {
-        Binding(get: { profile.tailscaleRouteEnabled }, set: { applyRemoteAccess(enabled: $0) })
+        Binding(get: { profile.tailscaleRouteEnabled }, set: { enabled in Task { await applyRemoteAccess(enabled: enabled) } })
     }
 
     private var exposureModeBinding: Binding<ExposureMode> {
@@ -210,7 +210,7 @@ struct ExposureSettingsView: View {
             set: { value in
                 var updated = profile
                 updated.exposureMode = value
-                applyRouteConfigurationChange(updated)
+                Task { _ = await applyRouteConfigurationChange(updated) }
             }
         )
     }
@@ -221,7 +221,7 @@ struct ExposureSettingsView: View {
             set: { value in
                 var updated = profile
                 updated.publicPort = value
-                applyRouteConfigurationChange(updated)
+                Task { _ = await applyRouteConfigurationChange(updated) }
             }
         )
     }
@@ -241,7 +241,7 @@ struct ExposureSettingsView: View {
                     if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
                     if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
                     profile = updated
-                    if !updated.tailscaleRouteEnabled { applyRemoteAccess(enabled: true) }
+                    if !updated.tailscaleRouteEnabled { Task { await applyRemoteAccess(enabled: true) } }
                 } else {
                     profile = updated
                 }
@@ -250,7 +250,7 @@ struct ExposureSettingsView: View {
         )
     }
 
-    private func applyRemoteAccess(enabled: Bool) {
+    private func applyRemoteAccess(enabled: Bool) async {
         if enabled {
             var updated = profile
             updated.tailscaleRouteEnabled = true
@@ -259,7 +259,7 @@ struct ExposureSettingsView: View {
             if updated.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: updated.tailscalePath) {
                 updated.tailscalePath = TailscaleRouteService.defaultCLIPath
             }
-            if model.startTailscaleRoute(updated) {
+            if await model.startTailscaleRoute(updated) {
                 profile = updated
                 mountPathText = updated.mountPath
                 persistLiveChange(updated)
@@ -268,7 +268,7 @@ struct ExposureSettingsView: View {
             let current = profile
             var updated = profile
             updated.tailscaleRouteEnabled = false
-            if model.stopTailscaleRoute(current) {
+            if await model.stopTailscaleRoute(current) {
                 profile = updated
                 persistLiveChange(updated)
             }
@@ -277,9 +277,9 @@ struct ExposureSettingsView: View {
     }
 
     @discardableResult
-    private func applyRouteConfigurationChange(_ updated: ServerProfile) -> Bool {
+    private func applyRouteConfigurationChange(_ updated: ServerProfile) async -> Bool {
         if updated.tailscaleRouteEnabled {
-            guard model.startTailscaleRoute(updated) else { return false }
+            guard await model.startTailscaleRoute(updated) else { return false }
             profile = updated
             persistLiveChange(updated)
         } else {
@@ -291,11 +291,11 @@ struct ExposureSettingsView: View {
         return true
     }
 
-    private func commitMountPath() {
+    private func commitMountPath() async {
         guard mountPathText != profile.mountPath else { return }
         var updated = profile
         updated.mountPath = mountPathText
-        if !applyRouteConfigurationChange(updated) {
+        if !(await applyRouteConfigurationChange(updated)) {
             mountPathText = profile.mountPath
         }
     }
