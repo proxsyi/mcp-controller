@@ -11,10 +11,11 @@ import subprocess
 from pathlib import Path
 
 HOME = Path.home()
+TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 REPO = Path(os.environ.get("MCP_CONTROLLER_REPO", HOME / "Projects/Clients/Versyi/MCP-Controller"))
 CONFIG = Path(os.environ.get("MCP_CONTROLLER_CONFIG", HOME / "Library/Application Support/MCP Controller/servers.json"))
 APP = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
-OUTPUT = Path(os.environ.get("MCP_CONTROLLER_REPORT", HOME / "Desktop/mcp-controller-diagnostics.txt"))
+OUTPUT = Path(os.environ.get("MCP_CONTROLLER_REPORT", HOME / f"Desktop/mcp-controller-diagnostics-{TIMESTAMP}.txt"))
 RESULTS = []
 PAYLOAD = json.dumps({
     "jsonrpc": "2.0", "id": 1, "method": "initialize",

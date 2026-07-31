@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-import contextlib, hashlib, json, os, plistlib, re, shutil, subprocess
+import contextlib, datetime, hashlib, json, os, plistlib, re, shutil, subprocess
 from pathlib import Path
 
 home = Path.home()
+timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 repo = Path(os.environ.get("MCP_CONTROLLER_REPO", home / "Projects/Clients/Versyi/MCP-Controller"))
 config = Path(os.environ.get("MCP_CONTROLLER_CONFIG", home / "Library/Application Support/MCP Controller/servers.json"))
 app = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
-report_path = Path(os.environ.get("MCP_CONTROLLER_REPORT", home / "Desktop/mcp-health-report.txt"))
+report_path = Path(os.environ.get("MCP_CONTROLLER_REPORT", home / f"Desktop/mcp-health-report-{timestamp}.txt"))
 results = []
 payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
 
