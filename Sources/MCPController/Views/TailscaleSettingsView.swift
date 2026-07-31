@@ -110,7 +110,9 @@ struct TailscaleSettingsView: View {
             value.tailscaleRouteEnabled = true
             if value.exposureMode == .disabled { value.exposureMode = .tailnet }
             if value.normalizedMountPath == "/" { value.mountPath = model.uniqueMountPath(for: value.name) }
-            value.tailscalePath = TailscaleRouteService.defaultCLIPath
+            if value.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: value.tailscalePath) {
+                value.tailscalePath = TailscaleRouteService.defaultCLIPath
+            }
             model.update(value)
             profile.wrappedValue = value
             if model.tailscaleFunnelRunning { _ = model.startTailscaleRoute(value) }
