@@ -57,12 +57,18 @@ if not credential:
 tailscale_path = profile.get("tailscalePath") or "/opt/homebrew/bin/tailscale"
 result = subprocess.run([tailscale_path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
 dns_name = json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
-mount_path = profile.get("mountPath") or "/mcp/remote"
-if not mount_path.startswith("/"):
+mount_path = (profile.get("mountPath") or "/mcp/remote").strip()
+if not mount_path or mount_path == "/":
+    mount_path = "/"
+elif not mount_path.startswith("/"):
     mount_path = "/" + mount_path
+if mount_path != "/" and mount_path.endswith("/"):
+    mount_path = mount_path[:-1]
+public_port = int(profile.get("publicPort") or 443)
+port_suffix = "" if public_port == 443 else f":{public_port}"
 out = {
     "name": profile.get("name", ""),
-    "url": "https://" + dns_name + mount_path,
+    "url": "https://" + dns_name + port_suffix + mount_path,
     "token": credential["token"],
     "compatibility": profile.get("remoteClientCompatibilityEnabled"),
     "gatewayPort": profile.get("gatewayPort"),
