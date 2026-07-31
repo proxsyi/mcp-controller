@@ -26,12 +26,6 @@ final class UpdateManager: ObservableObject {
 
     var updateAvailable: Bool { availableVersion != nil }
 
-    deinit {
-        timer?.invalidate()
-        checkTask?.cancel()
-        installTask?.cancel()
-    }
-
     func beginAutomaticChecks() {
         guard !startedAutomaticChecks else { return }
         startedAutomaticChecks = true
@@ -196,14 +190,14 @@ final class UpdateManager: ObservableObject {
         return try JSONDecoder().decode(GitHubRelease.self, from: Data(result.output.utf8))
     }
 
-    private static func githubCLIPath() throws -> String {
+    nonisolated private static func githubCLIPath() throws -> String {
         for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
         throw UpdateError.message("GitHub CLI is required for private-repository updates. Install it with brew install gh, then run gh auth login.")
     }
 
-    private static func launchInstaller(newApp: URL, currentApp: URL, staging: URL) throws {
+    nonisolated private static func launchInstaller(newApp: URL, currentApp: URL, staging: URL) throws {
         let script = staging.appendingPathComponent("install-update.sh")
         let contents = """
         #!/bin/zsh

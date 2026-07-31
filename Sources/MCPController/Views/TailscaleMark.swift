@@ -51,30 +51,3 @@ struct TailscaleMark: View {
         .accessibilityHidden(true)
     }
 }
-
-struct TailscaleToolbarButton: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isAnimating = false
-
-    var body: some View {
-        Button {
-            guard !isAnimating else { return }
-            Task { @MainActor in
-                isAnimating = true
-                if !reduceMotion { try? await Task.sleep(for: .milliseconds(260)) }
-                if model.tailscaleFunnelRunning { model.stopTailscaleFunnel() }
-                else { model.startTailscaleFunnel() }
-                if !reduceMotion { try? await Task.sleep(for: .milliseconds(460)) }
-                isAnimating = false
-            }
-        } label: {
-            TailscaleMark(isActive: model.tailscaleFunnelRunning, isAnimating: isAnimating)
-        }
-        .buttonStyle(PerfectCircleToolbarButtonStyle())
-        .disabled(isAnimating)
-        .help(model.tailscaleFunnelRunning ? "Stop Tailscale Funnel" : "Start Tailscale Funnel")
-        .accessibilityLabel(model.tailscaleFunnelRunning ? "Stop Tailscale Funnel" : "Start Tailscale Funnel")
-        .animation(.easeInOut(duration: 0.2), value: model.tailscaleFunnelRunning)
-    }
-}

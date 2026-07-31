@@ -22,43 +22,41 @@ struct RootView: View {
         }
     }
 
+    private var sidebar: some View {
+        List(selection: $model.selectedID) {
+            Section {
+                ForEach(filteredProfiles) { profile in
+                    sidebarRow(for: profile)
+                }
+                .onMove { indices, newOffset in
+                    let movedIDs = indices.map { filteredProfiles[$0].id }
+                    model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
+                }
+                .moveDisabled(!searchText.isEmpty)
+            } header: { sidebarSummary }
+        }
+        .navigationTitle("MCP Controller")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
+        .overlay {
+            if model.profiles.isEmpty {
+                emptyState(
+                    title: "No items yet",
+                    description: "Add an MCP server, heading, or spacer to start organizing this controller."
+                )
+            } else if model.serverProfiles.isEmpty {
+                emptyState(
+                    title: "No servers yet",
+                    description: "You only have organization items right now. Add an MCP server when you’re ready to run one."
+                )
+            } else if filteredProfiles.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
-            List(selection: $model.selectedID) {
-                Section {
-                    ForEach(filteredProfiles) { profile in
-                        ServerRow(profile: profile).tag(profile.id).contextMenu { contextMenu(for: profile) }
-                    }
-                    .moveDisabled(!searchText.isEmpty)
-                    .onMove { indices, newOffset in
-                        let movedIDs = indices.map { filteredProfiles[$0].id }
-                        model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
-                    }
-                } header: { sidebarSummary }
-            }
-            .navigationTitle("MCP Controller")
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
-            .overlay {
-                if model.profiles.isEmpty {
-                    ContentUnavailableView {
-                        Label("No items yet", systemImage: "server.rack")
-                    } description: {
-                        Text("Add an MCP server, heading, or spacer to start organizing this controller.")
-                    } actions: {
-                        Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
-                    }
-                } else if model.serverProfiles.isEmpty {
-                    ContentUnavailableView {
-                        Label("No servers yet", systemImage: "server.rack")
-                    } description: {
-                        Text("You only have organization items right now. Add an MCP server when you’re ready to run one.")
-                    } actions: {
-                        Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
-                    }
-                } else if filteredProfiles.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                }
-            }
+            sidebar
         } detail: {
             ZStack {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
@@ -105,6 +103,20 @@ struct RootView: View {
         .alert("MCP Controller", isPresented: Binding(get: { model.presentedError != nil }, set: { if !$0 { model.presentedError = nil } })) {
             Button("OK") { model.presentedError = nil }
         } message: { Text(model.presentedError ?? "") }
+    }
+
+    private func sidebarRow(for profile: ServerProfile) -> some View {
+        ServerRow(profile: profile)
+            .tag(profile.id)
+            .contextMenu { contextMenu(for: profile) }
+    }
+
+    private func emptyState(title: String, description: String) -> some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(title, systemImage: "server.rack", description: Text(description))
+            Button("Add Server", systemImage: "plus") { showingAddServer = true }
+                .buttonStyle(.borderedProminent)
+        }
     }
 
     @ViewBuilder private func contextMenu(for profile: ServerProfile) -> some View {

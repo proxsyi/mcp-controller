@@ -296,24 +296,6 @@ private final class ExclusiveGateway: @unchecked Sendable {
             sendHeadOK(connection, bufferedData: bufferedData)
             return
         }
-        if profile.remoteClientCompatibilityEnabled,
-           let sessionID = request.headers["mcp-session-id"],
-           let method = request.jsonRPCMethod,
-           let result = GatewayOptionalDiscoveryFallback.emptyResult(
-                for: method,
-                upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
-           ) {
-            logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
-            logHandler("Compatibility fallback response: method=\(method), contentType=text/event-stream, session=\(sessionID.prefix(8))….\n")
-            sendCompatibilityResult(
-                connection,
-                requestID: request.jsonRPCID,
-                sessionID: sessionID,
-                protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
-                result: result
-            )
-            return
-        }
         if request.method == "GET" {
             if let _ = request.headers["mcp-session-id"] {
                 guard let credential = authorizedCredential(for: request) else {
@@ -332,7 +314,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 publishState()
                 if profile.remoteClientCompatibilityEnabled {
                     logHandler("Compatibility session stream attached locally.\n")
-                    sendCompatibilitySessionStream(connection)
+                    sendCompatibilitySessionStream(connection, credential: credential)
                 } else {
                     proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
                 }
@@ -375,6 +357,25 @@ private final class ExclusiveGateway: @unchecked Sendable {
         switch arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name) {
         case .allowed:
             publishState()
+            if profile.remoteClientCompatibilityEnabled,
+               let sessionID = request.headers["mcp-session-id"],
+               let method = request.jsonRPCMethod,
+               let result = GatewayOptionalDiscoveryFallback.emptyResult(
+                    for: method,
+                    upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
+               ) {
+                logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
+                sendCompatibilityResult(
+                    connection,
+                    requestID: request.jsonRPCID,
+                    sessionID: sessionID,
+                    protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                    result: result,
+                    keepConnectionOpen: true,
+                    bufferedData: bufferedData
+                )
+                return
+            }
             proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
         case .waiting:
             publishState()
@@ -425,7 +426,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         return profile.clientCredentials.first(where: { $0.token == token })
     }
 
-    private func sendCompatibilitySessionStream(_ connection: NWConnection) {
+    private func sendCompatibilitySessionStream(_ connection: NWConnection, credential: GatewayClientCredential) {
         let eventID = "\(UUID().uuidString)_\(Int(Date().timeIntervalSince1970 * 1000))_0000_gek"
         let body = Data(("id: \(eventID)\ndata: \n\n").utf8)
         let headers = "HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
@@ -437,12 +438,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 self.logHandler("Compatibility session stream failed: \(error.localizedDescription)\n")
                 connection.cancel()
             } else {
-                self.scheduleCompatibilitySessionKeepalive(connection)
+                self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
             }
         })
     }
 
-    private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection) {
+    private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection, credential: GatewayClientCredential) {
         queue.asyncAfter(deadline: .now() + 15) { [weak self, weak connection] in
             guard let self, let connection else { return }
             let keepalive = HTTPChunkedBodyEncoder.encode(Data(": keepalive\n\n".utf8))
@@ -452,7 +453,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     self.logHandler("Compatibility session keepalive ended: \(error.localizedDescription)\n")
                     connection.cancel()
                 } else {
-                    self.scheduleCompatibilitySessionKeepalive(connection)
+                    guard self.arbiter.active?.clientID == credential.id.uuidString else {
+                        connection.cancel()
+                        return
+                    }
+                    _ = self.arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name)
+                    self.publishState()
+                    self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
                 }
             })
         }
@@ -958,11 +965,14 @@ private struct HTTPRequest {
             let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: decoded.body)
             return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + decoded.bytesConsumed)
         }
-        let length = Int(headers["content-length"] ?? "0") ?? 0
-        guard data.count >= bodyStart + length else { return nil }
-        let body = data.subdata(in: bodyStart..<(bodyStart + length))
+        guard let length = Int(headers["content-length"] ?? "0"),
+              length >= 0,
+              bodyStart <= data.count,
+              length <= data.count - bodyStart else { return nil }
+        let bodyEnd = bodyStart + length
+        let body = data.subdata(in: bodyStart..<bodyEnd)
         let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
-        return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + length)
+        return HTTPRequestParseResult(request: request, bytesConsumed: bodyEnd)
     }
 }
 
@@ -990,7 +1000,10 @@ private enum HTTPResponseFraming {
             guard let decoded = HTTPChunkedBodyDecoder.decodeWithConsumed(encodedBody) else { return false }
             return encodedBody.count >= decoded.bytesConsumed
         }
-        if let contentLength { return data.count >= bodyStart + contentLength }
+        if let contentLength {
+            guard contentLength >= 0, bodyStart <= data.count else { return false }
+            return contentLength <= data.count - bodyStart
+        }
         if closed { return true }
         return connectionHeader?.contains("close") == true && closed
     }
