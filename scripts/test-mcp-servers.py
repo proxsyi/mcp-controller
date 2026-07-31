@@ -95,8 +95,16 @@ def public_base_url(profiles: list[dict], provided: str | None) -> str:
     return "https://" + dns_name(profiles)
 
 def mount_path(profile: dict) -> str:
-    value = profile.get("mountPath") or "/"
-    return value if value.startswith("/") else "/" + value
+    value = (profile.get("mountPath") or "/").strip()
+    if not value or value == "/":
+        return "/"
+    value = value if value.startswith("/") else "/" + value
+    return value[:-1] if value.endswith("/") else value
+
+def public_url(base_url: str, profile: dict) -> str:
+    public_port = int(profile.get("publicPort", 443) or 443)
+    port_suffix = "" if public_port == 443 else f":{public_port}"
+    return base_url + port_suffix + mount_path(profile)
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -120,7 +128,7 @@ def main() -> int:
             p = profiles[pid]
             assert p["name"] == spec["name"], f"name is {p['name']!r}"
             assert p.get("description") == spec["description"], f"description is {p.get('description')!r}"
-            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else base_url + mount_path(p)
+            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else public_url(base_url, p)
             client = Client(url, token_for(p, args.credential), args.timeout)
             client.initialize()
             status, body = client.post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
