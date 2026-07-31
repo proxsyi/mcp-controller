@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-07-31
+
+### Fixed
+- Restored reliable menu bar opening by reverting the custom status-item label to the native MenuBarExtra system-image form.
+
 ## 0.8.0 — 2026-07-31
 
 - Added the running-server count beside the menu-bar icon.
