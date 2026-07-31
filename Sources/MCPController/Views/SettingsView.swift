@@ -13,6 +13,23 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .updates: return "arrow.triangle.2.circlepath"
         }
     }
+
+    var storageValue: String {
+        switch self {
+        case .app: return "app"
+        case .remoteAccess: return "remoteAccess"
+        case .updates: return "updates"
+        }
+    }
+
+    init?(storageValue: String) {
+        switch storageValue {
+        case "app": self = .app
+        case "remoteAccess": self = .remoteAccess
+        case "updates": self = .updates
+        default: return nil
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -50,6 +67,12 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 760, height: 560)
+        .onAppear {
+            selection = SettingsSection(storageValue: settings.preferredSettingsSection) ?? .app
+        }
+        .onChange(of: selection) { _, value in
+            settings.preferredSettingsSection = value.storageValue
+        }
     }
 
     private var appSettings: some View {
