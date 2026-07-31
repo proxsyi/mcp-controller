@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
-import argparse, json, os, pathlib, subprocess, sys, time, uuid
+import argparse, json, math, os, pathlib, subprocess, sys, time, uuid
 
 control_base = os.environ.get("MCP_CONTROLLER_CONTROL_DIR")
 base = pathlib.Path(control_base) if control_base else pathlib.Path.home()/"Library/Application Support/MCP Controller/Control"
 app_path = os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app")
 app_executable = pathlib.Path(app_path)/"Contents/MacOS/MCPController"
 reqdir, respdir = base/"requests", base/"responses"
-default_timeout = float(os.environ.get("MCP_CONTROLLER_TIMEOUT_SECONDS", "30"))
+
+def timeout_value(value):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("timeout must be a positive finite number")
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("timeout must be a positive finite number")
+    return parsed
+
+try:
+    default_timeout = timeout_value(os.environ.get("MCP_CONTROLLER_TIMEOUT_SECONDS", "30"))
+except argparse.ArgumentTypeError:
+    default_timeout = 30.0
 
 def app_is_running():
     return subprocess.run(["pgrep", "-f", str(app_executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -15,6 +28,8 @@ def app_is_ready():
     return app_is_running() and reqdir.exists() and respdir.exists()
 
 def ensure_app():
+    if app_is_ready():
+        return True
     subprocess.run(["open", "-g", "-j", "-a", app_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(50):
         if app_is_ready():
@@ -38,7 +53,7 @@ def main():
     parser.add_argument("--client-id", help="Waiting client identifier for approve/deny")
     parser.add_argument("--key", help="Access key name or UUID for key-show/key-remove")
     parser.add_argument("--index", help="Destination position for move or insertion position for heading-add/spacer-add")
-    parser.add_argument("--timeout", type=float, default=default_timeout, help="Seconds to wait for the controller response")
+    parser.add_argument("--timeout", type=timeout_value, default=default_timeout, help="Seconds to wait for the controller response")
     args=parser.parse_args()
     if not ensure_app():
         print("MCP Controller is not ready to accept terminal commands.", file=sys.stderr)
@@ -63,7 +78,7 @@ def main():
     temp.write_text(json.dumps(request))
     temp.rename(final)
     response=respdir/(ident+".json")
-    deadline=time.time()+max(args.timeout, 1)
+    deadline=time.time()+args.timeout
     while time.time() < deadline:
         if response.exists():
             result=json.loads(response.read_text())
