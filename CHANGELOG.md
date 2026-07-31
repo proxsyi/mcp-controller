@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — 2026-07-31
+
+- Added the running-server count beside the menu-bar icon.
+- Prevented routine `mcpctl` commands from activating or focusing the app; explicit `open` and `settings` commands still present the requested UI.
+- Added 15-second keepalives for compatibility session streams and exempted long-lived GET streams from the bounded public tool-request deadline.
+- Extended the installed Visual, AppleScript, and Remote bridge session timeouts from 10 minutes to 24 hours.
+- Verified a fresh Notion Serena session across sequential `tools/list`, project activation, instruction, configuration, and memory calls without restarting the app, gateway, route, or lease.
+
 ## 0.7.9 — 2026-07-30
 
 - Added a separate five-minute public MCP request timeout, configurable per protected profile from 1 to 60 minutes.
@@ -32,12 +40,6 @@
 All notable changes to MCP Controller are documented here.
 
 ## Unreleased
-
-### Fixed
-- Prevented routine `mcpctl` commands from activating or focusing the MCP Controller window; explicit `open` and `settings` commands still bring up the requested UI.
-- Added 15-second SSE keepalives for compatibility session streams so Notion and Tailscale do not discard healthy idle Mac MCP connections.
-- Exempted long-lived GET session streams from the bounded public tool-request deadline.
-- Extended the installed Visual, AppleScript, and Remote bridge session timeouts from 10 minutes to 24 hours.
 
 ## v0.7.6
 

@@ -2,7 +2,7 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.7.9` (build 26).
+Current release: `v0.8.0` (build 27).
 
 ## What it does
 
@@ -15,7 +15,7 @@ Current release: `v0.7.9` (build 26).
 - Optionally places a localhost exclusive-access gateway in front of a server.
 - Uses separate Bearer keys and one-client leases for remote AI connections.
 - Releases individual leases or every active lease from the menu bar without stopping servers.
-- Provides menu-bar controls, bounded logs, readiness checks, update checks, and terminal control through `mcpctl`.
+- Provides menu-bar controls with a live running-server count, bounded logs, readiness checks, update checks, and terminal control through `mcpctl`.
 - Stops managed servers, gateways, routes, leases, and Funnel during the app's managed quit path.
 - Persists local configuration under `~/Library/Application Support/MCP Controller/servers.json`.
 
@@ -184,7 +184,7 @@ Process inspection, readiness polling, gateway startup, route changes, Tailscale
 
 The circular arrow beside a server and Release All are lease-release controls. They disconnect the current AI lease without stopping the MCP server, allowing the same or another authorized client to reconnect.
 
-Protected public routes have a separate request deadline from lease expiry. New and legacy profiles default to a five-minute public request timeout, configurable from 1 to 60 minutes. Requests that have not begun responding receive HTTP 504 at the deadline; already-streaming responses are closed cleanly instead of receiving a second HTTP response.
+Protected public routes have a separate request deadline from lease expiry. New and legacy profiles default to a five-minute public request timeout, configurable from 1 to 60 minutes. Requests that have not begun responding receive HTTP 504 at the deadline; already-streaming responses are closed cleanly instead of receiving a second HTTP response. Long-lived compatibility GET streams are exempt from the bounded tool-request deadline and receive 15-second keepalives so Notion sessions remain alive through Funnel.
 
 ## Security
 
