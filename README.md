@@ -2,7 +2,7 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.1` (build 28).
+Current release: `v0.8.2` (build 29).
 
 ## What it does
 

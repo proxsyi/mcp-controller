@@ -10,7 +10,9 @@ struct RootView: View {
     private var filteredProfiles: [ServerProfile] {
         guard !searchText.isEmpty else { return model.profiles }
         return model.profiles.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            if $0.isSpacer { return false }
+            if $0.isHeading { return $0.name.localizedCaseInsensitiveContains(searchText) }
+            return $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.description.localizedCaseInsensitiveContains(searchText) ||
             $0.exposureMode.title.localizedCaseInsensitiveContains(searchText) ||
             model.phase(for: $0.id).title.localizedCaseInsensitiveContains(searchText) ||
@@ -25,12 +27,16 @@ struct RootView: View {
                     ForEach(filteredProfiles) { profile in
                         ServerRow(profile: profile).tag(profile.id).contextMenu { contextMenu(for: profile) }
                     }
+                    .onMove { indices, newOffset in
+                        let movedIDs = indices.map { filteredProfiles[$0].id }
+                        model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
+                    }
                 } header: { sidebarSummary }
             }
             .navigationTitle("MCP Servers")
             .searchable(text: $searchText, placement: .sidebar, prompt: "Find a server")
             .overlay {
-                if model.profiles.isEmpty {
+                if model.serverProfiles.isEmpty {
                     ContentUnavailableView {
                         Label("No servers yet", systemImage: "server.rack")
                     } description: {
@@ -44,7 +50,11 @@ struct RootView: View {
             ZStack {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
                 if let id = model.selectedID, let profile = model.profiles.first(where: { $0.id == id }) {
-                    ServerDetailView(profile: profile).id(profile.id).transition(.opacity.combined(with: .move(edge: .trailing)))
+                    if profile.isServer {
+                        ServerDetailView(profile: profile).id(profile.id).transition(.opacity.combined(with: .move(edge: .trailing)))
+                    } else {
+                        OrganizationItemDetailView(profile: profile)
+                    }
                 } else {
                     ContentUnavailableView("Select a server", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure or control it."))
                 }
@@ -78,19 +88,23 @@ struct RootView: View {
     }
 
     @ViewBuilder private func contextMenu(for profile: ServerProfile) -> some View {
-        let phase = model.phase(for: profile.id)
-        if phase.isActive { Button("Stop", systemImage: "stop.fill") { model.stop(profile) } }
-        else { Button("Start", systemImage: "play.fill") { model.start(profile) } }
-        Button("Copy Logs", systemImage: "square.on.square") { copyLogs(for: profile, resetFailure: phase.isFailed) }
-            .disabled(model.logs[profile.id, default: ""].isEmpty)
-        Divider()
-        Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicate(profile) }
-        Button("Remove", systemImage: "trash", role: .destructive) { model.remove(profile) }
+        if profile.isServer {
+            let phase = model.phase(for: profile.id)
+            if phase.isActive { Button("Stop", systemImage: "stop.fill") { model.stop(profile) } }
+            else { Button("Start", systemImage: "play.fill") { model.start(profile) } }
+            Button("Copy Logs", systemImage: "square.on.square") { copyLogs(for: profile, resetFailure: phase.isFailed) }
+                .disabled(model.logs[profile.id, default: ""].isEmpty)
+            Divider()
+            Button("Duplicate", systemImage: "plus.square.on.square") { model.duplicate(profile) }
+            Button("Remove", systemImage: "trash", role: .destructive) { model.remove(profile) }
+        } else {
+            Button("Remove", systemImage: "trash", role: .destructive) { model.remove(profile) }
+        }
     }
 
     private var sidebarSummary: some View {
         HStack(spacing: 8) {
-            Text("\(model.profiles.count) configured")
+            Text("\(model.serverProfiles.count) servers")
             Spacer(minLength: 12)
             if model.failedCount > 0 {
                 Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).fixedSize()
@@ -115,24 +129,38 @@ private struct ServerRow: View {
     private var phase: RuntimePhase { model.phase(for: profile.id) }
 
     var body: some View {
-        HStack(spacing: 11) {
-            ZStack {
-                Circle().fill(statusColor.opacity(0.16)).frame(width: 30, height: 30)
-                Image(systemName: profile.tailscaleRouteEnabled ? "globe" : "server.rack")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(statusColor)
+        Group {
+            if profile.isHeading {
+                Text(profile.name)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+            } else if profile.isSpacer {
+                Color.clear.frame(height: 14)
+            } else {
+                HStack(spacing: 11) {
+                    ZStack {
+                        Circle().fill(statusColor.opacity(0.16)).frame(width: 30, height: 30)
+                        Image(systemName: profile.tailscaleRouteEnabled ? "globe" : "server.rack")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(statusColor)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(profile.name).fontWeight(.medium).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(subtitle).lineLimit(1)
+                            if profile.tailscaleRouteEnabled { Image(systemName: "link").accessibilityLabel("Tailscale route enabled") }
+                        }.font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8); actionControl
+                }
+                .padding(.vertical, 5).contentShape(Rectangle()).scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
+                .onHover { value in withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = value } }
+                .animation(AppMotion.quick(reduceMotion: reduceMotion), value: phase)
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(profile.name).fontWeight(.medium).lineLimit(1)
-                HStack(spacing: 4) {
-                    Text(subtitle).lineLimit(1)
-                    if profile.tailscaleRouteEnabled { Image(systemName: "link").accessibilityLabel("Tailscale route enabled") }
-                }.font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8); actionControl
         }
-        .padding(.vertical, 5).contentShape(Rectangle()).scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
-        .onHover { value in withAnimation(AppMotion.quick(reduceMotion: reduceMotion)) { hovering = value } }
-        .animation(AppMotion.quick(reduceMotion: reduceMotion), value: phase)
     }
 
     @ViewBuilder private var actionControl: some View {
@@ -166,5 +194,17 @@ private struct ServerRow: View {
     }
     private var statusColor: Color {
         switch phase { case .running: .green; case .starting, .stopping: .orange; case .failed: .red; case .stopped: .secondary }
+    }
+}
+
+private struct OrganizationItemDetailView: View {
+    let profile: ServerProfile
+
+    var body: some View {
+        ContentUnavailableView(
+            profile.isHeading ? profile.name : "Spacer",
+            systemImage: profile.isHeading ? "textformat.size" : "rectangle.split.1x2",
+            description: Text(profile.isHeading ? "This heading organizes the sidebar. Drag it to reposition it or rename it from Terminal." : "This spacer separates groups in the sidebar. Drag it to reposition it or remove it from Terminal.")
+        )
     }
 }

@@ -17,12 +17,12 @@ struct MenuBarView: View {
                 }
             }
             Divider()
-            if model.profiles.isEmpty {
+            if model.serverProfiles.isEmpty {
                 Label("No servers configured", systemImage: "server.rack").font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) { ForEach(model.profiles) { serverRow($0) } }
-                }.frame(height: min(CGFloat(model.profiles.count) * 44, 240))
+                    LazyVStack(spacing: 2) { ForEach(model.serverProfiles) { serverRow($0) } }
+                }.frame(height: min(CGFloat(model.serverProfiles.count) * 44, 240))
                 Divider()
                 HStack(spacing: 8) {
                     Button("Stop Everything", systemImage: "stop.fill", role: .destructive) { model.stopAll() }
@@ -30,7 +30,7 @@ struct MenuBarView: View {
                         .disabled(model.runningCount == 0 || model.isProcessingBulkLifecycleAction)
                     Button("Start Everything", systemImage: "play.fill") { model.startAll() }
                         .controlSize(.small)
-                        .disabled(model.profiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
+                        .disabled(model.serverProfiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
                     Button("Release All", systemImage: "arrow.uturn.left.circle") { model.releaseAllLeases() }
                         .controlSize(.small)
                         .disabled(model.activeLeaseCount == 0)

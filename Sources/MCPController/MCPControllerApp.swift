@@ -42,7 +42,7 @@ struct MCPControllerApp: App {
                 .background(SettingsWindowProbe { settingsWindow.register($0) })
         }
 
-        MenuBarExtra("", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
+        MenuBarExtra("\(model.runningCount)", systemImage: model.runningCount > 0 ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") {
             MenuBarView().environmentObject(model)
         }
         .menuBarExtraStyle(.window)

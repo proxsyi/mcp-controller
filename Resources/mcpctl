@@ -5,14 +5,14 @@ base = pathlib.Path.home()/"Library/Application Support/MCP Controller/Control"
 reqdir, respdir = base/"requests", base/"responses"
 
 def ensure_app():
-    subprocess.run(["open", "-g", "-a", "/Applications/MCP Controller.app"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["open", "-g", "-j", "-a", "/Applications/MCP Controller.app"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(50):
         if reqdir.exists(): return
         time.sleep(.1)
 
 def main():
     parser=argparse.ArgumentParser(prog="mcpctl", description="Control MCP Controller from Terminal")
-    parser.add_argument("action", help="list, status, show, export, template, new, save, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, remote-url, funnel-start, funnel-stop, funnel-status, use-default-cli, lease, lease-release, lease-release-all, pending, approve, deny, keys, key-add, key-remove, key-show, duplicate, remove, one-ai, check-updates, install-update, open, settings, quit")
+    parser.add_argument("action", help="list, status, show, export, template, new, heading-add, spacer-add, rename, move, save, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, remote-url, funnel-start, funnel-stop, funnel-status, use-default-cli, lease, lease-release, lease-release-all, pending, approve, deny, keys, key-add, key-remove, key-show, duplicate, remove, one-ai, check-updates, install-update, open, settings, quit")
     parser.add_argument("target", nargs="?", help="Server name or UUID")
     parser.add_argument("--secrets", action="store_true", help="Include stored secrets in export")
     parser.add_argument("--restart", action="store_true", help="Restart a running profile to apply save or key changes")
@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--local-port", help="Local port for new")
     parser.add_argument("--client-id", help="Waiting client identifier for approve/deny")
     parser.add_argument("--key", help="Access key name or UUID for key-show/key-remove")
+    parser.add_argument("--index", help="Destination position for move or insertion position for heading-add/spacer-add")
     args=parser.parse_args(); ensure_app(); reqdir.mkdir(parents=True, exist_ok=True); respdir.mkdir(parents=True, exist_ok=True)
     ident=str(uuid.uuid4()); extra={"secrets":str(args.secrets).lower(), "restart":str(args.restart).lower()}
     if args.file: extra["json"]=pathlib.Path(args.file).read_text()
@@ -36,6 +37,7 @@ def main():
     if args.local_port: extra["localPort"]=args.local_port
     if args.client_id: extra["clientID"]=args.client_id
     if args.key: extra["key"]=args.key
+    if args.index: extra["index"]=args.index
     request={"id":ident,"action":args.action,"target":args.target,"arguments":extra}
     temp=reqdir/(ident+".tmp"); final=reqdir/(ident+".json")
     temp.write_text(json.dumps(request)); temp.rename(final); response=respdir/(ident+".json")

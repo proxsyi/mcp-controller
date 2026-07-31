@@ -29,8 +29,9 @@ final class AppModel: ObservableObject {
     var onCheckForUpdates: (() -> String)?
     var onInstallUpdate: (() -> String)?
 
-    var runningCount: Int { phases.values.filter(\.isActive).count }
-    var failedCount: Int { profiles.filter { phase(for: $0.id).isFailed }.count }
+    var serverProfiles: [ServerProfile] { profiles.filter(\.isServer) }
+    var runningCount: Int { serverProfiles.filter { phase(for: $0.id).isActive }.count }
+    var failedCount: Int { serverProfiles.filter { phase(for: $0.id).isFailed }.count }
     var activeLeaseCount: Int { gatewayLeases.count }
 
     init() {
@@ -71,13 +72,19 @@ final class AppModel: ObservableObject {
         return text
     }
 
-    func add(_ profile: ServerProfile) { profiles.append(profile); selectedID = profile.id; persist() }
+    func add(_ profile: ServerProfile) {
+        let insertionIndex = max(0, min(profiles.count, profiles.count))
+        profiles.insert(profile, at: insertionIndex)
+        selectedID = profile.id
+        persist()
+    }
     func update(_ profile: ServerProfile) {
         guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
         profiles[index] = profile; persist()
     }
 
     func duplicate(_ profile: ServerProfile) {
+        guard profile.isServer else { return }
         var copy = profile
         copy.id = UUID(); copy.name += " Copy"; copy.autoStart = false; copy.tailscaleRouteEnabled = false
         copy.localPort = nextAvailableLocalPort(startingAt: min(profile.localPort + 1, 65535))
@@ -122,8 +129,38 @@ final class AppModel: ObservableObject {
         return profile
     }
 
+    @discardableResult
+    func createHeading(title: String, index: Int? = nil) -> ServerProfile {
+        var profile = ServerProfile()
+        profile.kind = .heading
+        profile.name = title
+        let insertion = max(0, min(index ?? profiles.count, profiles.count))
+        profiles.insert(profile, at: insertion)
+        selectedID = profile.id
+        persist()
+        return profile
+    }
+
+    @discardableResult
+    func createSpacer(index: Int? = nil) -> ServerProfile {
+        var profile = ServerProfile()
+        profile.kind = .spacer
+        profile.name = ""
+        let insertion = max(0, min(index ?? profiles.count, profiles.count))
+        profiles.insert(profile, at: insertion)
+        selectedID = profile.id
+        persist()
+        return profile
+    }
+
+    func moveItem(withID id: UUID, toIndex index: Int) -> Bool {
+        guard let currentIndex = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        moveProfiles(withIDs: [id], toFilteredIndex: index, filteredIDs: profiles.map(\.id))
+        return currentIndex != index
+    }
+
     func remoteURL(for profile: ServerProfile) -> String? {
-        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
+        guard profile.isServer, profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
         if let dnsName = tailscaleDNSNames[profile.tailscalePath], !dnsName.isEmpty {
             return TailscaleRouteService.address(for: profile, dnsName: dnsName)
         }
@@ -143,14 +180,46 @@ final class AppModel: ObservableObject {
     }
 
     func applyDefaultTailscaleCLIToAllProfiles() {
-        for original in profiles {
+        for original in serverProfiles {
             var profile = original
             profile.tailscalePath = TailscaleRouteService.defaultCLIPath
             if profile != original { update(profile) }
         }
     }
 
+    func moveProfiles(withIDs movedIDs: [UUID], toFilteredIndex destination: Int, filteredIDs: [UUID]) {
+        guard !movedIDs.isEmpty else { return }
+
+        let movingIDSet = Set(movedIDs)
+        let movingProfiles = profiles.filter { movingIDSet.contains($0.id) }
+        guard !movingProfiles.isEmpty else { return }
+
+        let remainingProfiles = profiles.filter { !movingIDSet.contains($0.id) }
+        let remainingFilteredIDs = filteredIDs.filter { !movingIDSet.contains($0) }
+        let clampedDestination = max(0, min(destination, remainingFilteredIDs.count))
+
+        let insertionIndex: Int
+        if clampedDestination >= remainingFilteredIDs.count {
+            insertionIndex = remainingProfiles.count
+        } else if let anchorID = remainingFilteredIDs[safe: clampedDestination],
+                  let anchorIndex = remainingProfiles.firstIndex(where: { $0.id == anchorID }) {
+            insertionIndex = anchorIndex
+        } else {
+            insertionIndex = remainingProfiles.count
+        }
+
+        profiles = remainingProfiles
+        profiles.insert(contentsOf: movingProfiles, at: insertionIndex)
+        persist()
+    }
+
     func remove(_ profile: ServerProfile) {
+        guard profile.isServer else {
+            profiles.removeAll { $0.id == profile.id }
+            selectedID = profiles.first?.id
+            persist()
+            return
+        }
         if profile.tailscaleRouteEnabled { _ = stopTailscaleRoute(profile) }
         stop(profile) { [weak self] in
             guard let self else { return }
@@ -162,7 +231,7 @@ final class AppModel: ObservableObject {
     }
 
     func start(_ profile: ServerProfile) {
-        guard !phase(for: profile.id).isActive else { return }
+        guard profile.isServer, !phase(for: profile.id).isActive else { return }
         let errors = profile.validationErrors()
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
         if let conflict = profiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
@@ -235,7 +304,7 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrapRuntime() async {
-        for profile in profiles {
+        for profile in serverProfiles {
             guard phase(for: profile.id) == .stopped else { continue }
             if let listener = await PortInspector.listenerAsync(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) {
                 await adopt(listener, for: profile)
@@ -329,7 +398,7 @@ final class AppModel: ObservableObject {
     }
 
     func startAll() {
-        let queue = profiles.map(\.id).filter { !phase(for: $0).isActive }
+        let queue = serverProfiles.map(\.id).filter { !phase(for: $0).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
         isProcessingBulkLifecycleAction = true
@@ -350,7 +419,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopAll() {
-        let queue = profiles.map(\.id).filter { phase(for: $0).isActive }
+        let queue = serverProfiles.map(\.id).filter { phase(for: $0).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
         isProcessingBulkLifecycleAction = true
@@ -373,7 +442,8 @@ final class AppModel: ObservableObject {
 
     func stopImmediatelyForApplicationQuit() {
         bulkLifecycleTask?.cancel()
-        for profile in profiles {
+        flushPersistNow()
+        for profile in serverProfiles {
             gatewayManager.stop(profileID: profile.id)
             if let listener = adoptedListeners.removeValue(forKey: profile.id) {
                 _ = Darwin.kill(listener.pid, SIGTERM)
@@ -424,10 +494,22 @@ final class AppModel: ObservableObject {
         }
     }
     private func appendLog(_ id: UUID, _ text: String) { logs[id] = String(((logs[id] ?? "") + text).suffix(100_000)) }
-    private func persist() { do { try store.save(profiles) } catch { presentedError = "Could not save server profiles: \(error.localizedDescription)" } }
+    private func persist(immediate: Bool = false) {
+        do { try store.save(profiles) } catch { presentedError = "Could not save server profiles: \(error.localizedDescription)" }
+    }
+
+    func flushPersistNow() {
+        persist(immediate: true)
+    }
 }
 
 enum ControllerError: LocalizedError {
     case commandFailed(String)
     var errorDescription: String? { switch self { case .commandFailed(let message): message.trimmingCharacters(in: .whitespacesAndNewlines) } }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }

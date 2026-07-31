@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2 — 2026-07-31
+
+### Added
+- Added drag-and-drop sidebar organization with first-class heading and spacer items that persist to the local profile store.
+- Added `mcpctl heading-add`, `spacer-add`, `rename`, and `move --index` commands for terminal-driven organization.
+
+### Fixed
+- Restored the live running-server count in the menu bar without breaking click-to-open behavior.
+- Kept routine `mcpctl` wake-up commands fully backgrounded so Terminal stays focused unless an explicit UI-opening action is requested.
+- Replaced the crashing background profile-save path with a stable save flow after live organization testing.
+
 ## 0.8.1 — 2026-07-31
 
 ### Fixed
