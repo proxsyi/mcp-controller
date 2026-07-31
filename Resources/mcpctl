@@ -6,6 +6,7 @@ base = pathlib.Path(control_base) if control_base else pathlib.Path.home()/"Libr
 app_path = os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app")
 app_executable = pathlib.Path(app_path)/"Contents/MacOS/MCPController"
 reqdir, respdir = base/"requests", base/"responses"
+default_timeout = float(os.environ.get("MCP_CONTROLLER_TIMEOUT_SECONDS", "30"))
 
 def app_is_running():
     return subprocess.run(["pgrep", "-f", str(app_executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -37,6 +38,7 @@ def main():
     parser.add_argument("--client-id", help="Waiting client identifier for approve/deny")
     parser.add_argument("--key", help="Access key name or UUID for key-show/key-remove")
     parser.add_argument("--index", help="Destination position for move or insertion position for heading-add/spacer-add")
+    parser.add_argument("--timeout", type=float, default=default_timeout, help="Seconds to wait for the controller response")
     args=parser.parse_args()
     if not ensure_app():
         print("MCP Controller is not ready to accept terminal commands.", file=sys.stderr)
@@ -61,7 +63,8 @@ def main():
     temp.write_text(json.dumps(request))
     temp.rename(final)
     response=respdir/(ident+".json")
-    for _ in range(150):
+    deadline=time.time()+max(args.timeout, 1)
+    while time.time() < deadline:
         if response.exists():
             result=json.loads(response.read_text())
             response.unlink(missing_ok=True)
@@ -69,6 +72,6 @@ def main():
             elif result.get("message"): print(result["message"])
             return 0 if result.get("success") else 1
         time.sleep(.1)
-    print("MCP Controller did not respond within 15 seconds.", file=sys.stderr)
+    print(f"MCP Controller did not respond within {args.timeout:g} seconds.", file=sys.stderr)
     return 2
 if __name__ == "__main__": raise SystemExit(main())
