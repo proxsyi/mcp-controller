@@ -9,6 +9,23 @@ struct TerminalControlRequest: Codable, Sendable {
     var shouldAcknowledgeBeforeHandling: Bool {
         action.caseInsensitiveCompare("quit") == .orderedSame
     }
+
+    var validationError: String? {
+        switch action.lowercased() {
+        case "one-ai":
+            guard let enabled = arguments["enabled"], enabled == "true" || enabled == "false" else {
+                return "Pass --enabled true or false."
+            }
+        case "new":
+            if let value = arguments["localPort"],
+               (Int(value).map { (1024...65_535).contains($0) } != true) {
+                return "Pass --local-port with a value from 1024 through 65535."
+            }
+        default:
+            break
+        }
+        return nil
+    }
 }
 
 struct TerminalControlResponse: Codable, Sendable {
@@ -76,6 +93,11 @@ final class TerminalControlService: @unchecked Sendable {
             guard let data = try? Data(contentsOf: url),
                   let request = try? JSONDecoder().decode(TerminalControlRequest.self, from: data) else {
                 writeErrorResponse("Invalid terminal control request.", for: url)
+                processedAny = true
+                continue
+            }
+            if let validationError = request.validationError {
+                writeResponse(.error(validationError), requestID: request.id)
                 processedAny = true
                 continue
             }
