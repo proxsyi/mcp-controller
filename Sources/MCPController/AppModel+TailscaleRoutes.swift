@@ -74,6 +74,8 @@ extension AppModel {
         }
         var configured = profile; configured.tailscaleRouteEnabled = true
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: configured) else { presentedError = "Choose Tailnet or Public Funnel before starting the route."; return false }
+
+        let previous = profiles.first(where: { $0.id == configured.id && $0.tailscaleRouteEnabled })
         _ = removeManagedRoutes(for: configured)
         do {
             let result = try CommandRunner.run(executable: configured.tailscalePath, arguments: arguments)
@@ -84,7 +86,12 @@ extension AppModel {
                 UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
             }
             return true
-        } catch { presentedError = "Could not start the Tailscale route for \(profile.name): \(error.localizedDescription)"; return false }
+        } catch {
+            let restored = restorePreviousRoute(previous)
+            let restoreNote = restored ? " The previous route was restored." : ""
+            presentedError = "Could not start the Tailscale route for \(profile.name): \(error.localizedDescription)\(restoreNote)"
+            return false
+        }
     }
 
     @discardableResult
@@ -103,6 +110,28 @@ extension AppModel {
             UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
         }
         return true
+    }
+
+    private func restorePreviousRoute(_ previous: ServerProfile?) -> Bool {
+        guard let previous,
+              TailscaleRouteService.isCLIAvailable(at: previous.tailscalePath),
+              let restoreArguments = TailscaleCommandBuilder.enableArguments(for: previous) else {
+            return false
+        }
+        do {
+            let result = try CommandRunner.run(executable: previous.tailscalePath, arguments: restoreArguments)
+            guard result.exitCode == 0 else { return false }
+            if previous.exposureMode == .funnel {
+                tailscaleFunnelRunning = true
+                UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+            } else if !serverProfiles.contains(where: { $0.id != previous.id && $0.tailscaleRouteEnabled && $0.exposureMode == .funnel }) {
+                tailscaleFunnelRunning = false
+                UserDefaults.standard.set(false, forKey: "tailscale.funnelRunning")
+            }
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func removeManagedRoutes(for profile: ServerProfile) -> [String] {
