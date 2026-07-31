@@ -18,7 +18,7 @@ SAFE_CALLS = {
 }
 
 class MCPClient:
-    def __init__(self, url: str, token: str, timeout: int):
+    def __init__(self, url: str, token: str | None, timeout: int):
         self.url, self.token, self.timeout, self.session, self.next_id = url, token, timeout, None, 1
 
     @staticmethod
@@ -43,12 +43,14 @@ class MCPClient:
             payload["id"] = self.next_id; self.next_id += 1
         if params is not None: payload["params"] = params
         headers = {
-            "Authorization": f"Bearer {self.token}",
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             "MCP-Protocol-Version": "2025-11-25",
         }
-        if self.session: headers["Mcp-Session-Id"] = self.session
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        if self.session:
+            headers["Mcp-Session-Id"] = self.session
         request = urllib.request.Request(self.url, data=json.dumps(payload).encode(), headers=headers, method="POST")
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             self.session = response.headers.get("Mcp-Session-Id") or self.session
@@ -103,6 +105,23 @@ def normalized_mount_path(profile: dict) -> str:
     mount_path = mount_path if mount_path.startswith("/") else "/" + mount_path
     return mount_path[:-1] if mount_path.endswith("/") else mount_path
 
+def endpoint_path(profile: dict) -> str:
+    args = [str(value) for value in profile.get("arguments", [])]
+    for index, argument in enumerate(args):
+        if argument == "--streamableHttpPath" and index + 1 < len(args):
+            return normalized_mount_path({"mountPath": args[index + 1]})
+        if argument.startswith("--streamableHttpPath="):
+            return normalized_mount_path({"mountPath": argument.split("=", 1)[1]})
+        if argument in ("--path", "--mcp-path") and index + 1 < len(args):
+            return normalized_mount_path({"mountPath": args[index + 1]})
+    for index, argument in enumerate(args):
+        if argument == "--transport" and index + 1 < len(args):
+            if args[index + 1].lower() in ("streamable-http", "streamablehttp"):
+                return "/mcp"
+        if argument.lower() in ("--transport=streamable-http", "--transport=streamablehttp"):
+            return "/mcp"
+    return "/mcp"
+
 def public_url(dns: str, profile: dict) -> str:
     mount_path = normalized_mount_path(profile)
     public_port = int(profile.get("publicPort", 443) or 443)
@@ -111,6 +130,9 @@ def public_url(dns: str, profile: dict) -> str:
 
 def public_surface_enabled(profile: dict) -> bool:
     return bool(profile.get("tailscaleRouteEnabled")) and profile.get("exposureMode") != "disabled"
+
+def gateway_surface_enabled(profile: dict) -> bool:
+    return bool(profile.get("exclusiveGatewayEnabled"))
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -129,14 +151,16 @@ def main() -> int:
             print(json.dumps({"name": profile["name"], "status": "skipped"}), flush=True)
             continue
         row = {"name": profile["name"], "surfaces": {}}
-        token = token_for(profile, args.credential)
-        surfaces = {"gateway": f"http://127.0.0.1:{profile['gatewayPort']}/"}
+        safe = [] if args.catalog_only else SAFE_CALLS.get(profile["name"], [])
+        local_url = f"http://127.0.0.1:{profile['localPort']}{endpoint_path(profile)}"
+        surfaces: dict[str, tuple[str, str | None]] = {"local": (local_url, None)}
+        if gateway_surface_enabled(profile):
+            surfaces["gateway"] = (f"http://127.0.0.1:{profile['gatewayPort']}/", token_for(profile, args.credential))
         if public_surface_enabled(profile):
-            surfaces["public"] = public_url(dns, profile)
-        for surface, url in surfaces.items():
+            surfaces["public"] = (public_url(dns, profile), token_for(profile, args.credential))
+        for surface, (url, token) in surfaces.items():
             started = time.monotonic()
             try:
-                safe = [] if args.catalog_only else SAFE_CALLS.get(profile["name"], [])
                 count, called = MCPClient(url, token, args.timeout).validate(safe)
                 row["surfaces"][surface] = {"status": "passed", "toolCount": count, "safeTool": called, "seconds": round(time.monotonic()-started, 3)}
             except Exception as error:
