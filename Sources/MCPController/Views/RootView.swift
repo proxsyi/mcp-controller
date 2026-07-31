@@ -29,6 +29,7 @@ struct RootView: View {
                     ForEach(filteredProfiles) { profile in
                         ServerRow(profile: profile).tag(profile.id).contextMenu { contextMenu(for: profile) }
                     }
+                    .moveDisabled(!searchText.isEmpty)
                     .onMove { indices, newOffset in
                         let movedIDs = indices.map { filteredProfiles[$0].id }
                         model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
@@ -238,7 +239,7 @@ private struct OrganizationItemDetailView: View {
         ContentUnavailableView(
             profile.isHeading ? profile.name : "Spacer",
             systemImage: profile.isHeading ? "textformat.size" : "rectangle.split.1x2",
-            description: Text(profile.isHeading ? "This heading organizes the sidebar. Drag it to reposition it or rename it from Terminal." : "This spacer separates groups in the sidebar. Drag it to reposition it or remove it from Terminal.")
+            description: Text(profile.isHeading ? "This heading organizes the sidebar. Drag it to reposition it or rename it from Terminal." : "This spacer separates groups in the sidebar. Drag it to reposition it or remove it from Terminal." )
         )
     }
 }
