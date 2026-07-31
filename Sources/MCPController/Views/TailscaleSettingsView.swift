@@ -57,6 +57,7 @@ struct TailscaleSettingsView: View {
 
     private func routeRow(profile: Binding<ServerProfile>) -> some View {
         let value = profile.wrappedValue
+        let isLiveFunnelRouteLocked = model.tailscaleFunnelRunning && value.exposureMode == .funnel
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -91,7 +92,7 @@ struct TailscaleSettingsView: View {
                         TextField("/mcp/server", text: mountPathBinding(for: profile)).textFieldStyle(.roundedBorder)
                     }
                 }
-                .disabled(model.tailscaleFunnelRunning)
+                .disabled(isLiveFunnelRouteLocked)
 
                 HStack {
                     Text(publicAddress(for: profile.wrappedValue)).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)

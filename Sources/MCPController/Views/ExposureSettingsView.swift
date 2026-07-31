@@ -23,6 +23,10 @@ struct ExposureSettingsView: View {
         .onChange(of: profile.exposureMode) { _, _ in refreshDNS() }
     }
 
+    private var isLiveFunnelRouteLocked: Bool {
+        model.tailscaleFunnelRunning && profile.exposureMode == .funnel
+    }
+
     private var remoteAccessCard: some View {
         ContentCard(title: "Remote access", symbol: "globe") {
             VStack(alignment: .leading, spacing: 12) {
@@ -49,7 +53,7 @@ struct ExposureSettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
-                            .disabled(model.tailscaleFunnelRunning)
+                            .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("HTTPS port").foregroundStyle(.secondary)
@@ -58,14 +62,14 @@ struct ExposureSettingsView: View {
                             }
                             .labelsHidden()
                             .frame(width: 120)
-                            .disabled(model.tailscaleFunnelRunning)
+                            .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("Route path").foregroundStyle(.secondary)
                             TextField("/mcp/server", text: mountPathBinding)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
-                                .disabled(model.tailscaleFunnelRunning)
+                                .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("Remote URL").foregroundStyle(.secondary)
@@ -87,8 +91,8 @@ struct ExposureSettingsView: View {
                         }
                     }
 
-                    Text(model.tailscaleFunnelRunning
-                         ? "Stop the shared Funnel in Settings before editing a live public route."
+                    Text(isLiveFunnelRouteLocked
+                         ? "Stop the shared Funnel in Settings before editing this live public route."
                          : "Route changes are applied directly when this server’s remote route is enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
