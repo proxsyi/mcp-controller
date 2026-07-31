@@ -6,6 +6,8 @@ struct TailscaleSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
     @State private var dnsRefreshToken = UUID()
+    @State private var mountPathDrafts: [UUID: String] = [:]
+    @FocusState private var focusedRouteID: UUID?
 
     private var serverIndices: [Int] {
         model.profiles.indices.filter { model.profiles[$0].isServer }
@@ -21,7 +23,17 @@ struct TailscaleSettingsView: View {
             }
             .padding(22)
         }
-        .onAppear { refreshDNS() }
+        .onAppear {
+            for profile in model.serverProfiles {
+                mountPathDrafts[profile.id] = profile.mountPath
+            }
+            refreshDNS()
+        }
+        .onChange(of: focusedRouteID) { previous, current in
+            if let previous, previous != current {
+                commitMountPath(profileID: previous)
+            }
+        }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.tailscaleFunnelRunning)
     }
 
@@ -89,7 +101,13 @@ struct TailscaleSettingsView: View {
                     }
                     GridRow {
                         Text("Route path").foregroundStyle(.secondary)
-                        TextField("/mcp/server", text: mountPathBinding(for: profile)).textFieldStyle(.roundedBorder)
+                        TextField("/mcp/server", text: mountPathDraftBinding(for: profile))
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedRouteID, equals: value.id)
+                            .onSubmit {
+                                commitMountPath(profileID: value.id)
+                                focusedRouteID = nil
+                            }
                     }
                 }
                 .disabled(isLiveFunnelRouteLocked)
@@ -117,6 +135,7 @@ struct TailscaleSettingsView: View {
             }
             if model.startTailscaleRoute(value) {
                 profile.wrappedValue = value
+                mountPathDrafts[value.id] = value.mountPath
             }
         } else {
             if model.stopTailscaleRoute(value) {
@@ -149,14 +168,11 @@ struct TailscaleSettingsView: View {
         )
     }
 
-    private func mountPathBinding(for profile: Binding<ServerProfile>) -> Binding<String> {
-        Binding(
-            get: { profile.wrappedValue.mountPath },
-            set: { value in
-                var updated = profile.wrappedValue
-                updated.mountPath = value
-                applyRouteConfigurationChange(updated, to: profile)
-            }
+    private func mountPathDraftBinding(for profile: Binding<ServerProfile>) -> Binding<String> {
+        let id = profile.wrappedValue.id
+        return Binding(
+            get: { mountPathDrafts[id] ?? profile.wrappedValue.mountPath },
+            set: { mountPathDrafts[id] = $0 }
         )
     }
 
@@ -164,10 +180,37 @@ struct TailscaleSettingsView: View {
         if updated.tailscaleRouteEnabled {
             if model.startTailscaleRoute(updated) {
                 profile.wrappedValue = updated
+                mountPathDrafts[updated.id] = updated.mountPath
             }
         } else {
             model.update(updated)
             profile.wrappedValue = updated
+            mountPathDrafts[updated.id] = updated.mountPath
+        }
+        refreshDNS()
+    }
+
+    private func commitMountPath(profileID: UUID) {
+        guard let index = model.profiles.firstIndex(where: { $0.id == profileID && $0.isServer }) else {
+            mountPathDrafts.removeValue(forKey: profileID)
+            return
+        }
+        let current = model.profiles[index]
+        let draft = mountPathDrafts[profileID] ?? current.mountPath
+        guard draft != current.mountPath else { return }
+
+        var updated = current
+        updated.mountPath = draft
+        if updated.tailscaleRouteEnabled {
+            if model.startTailscaleRoute(updated) {
+                model.profiles[index] = updated
+                mountPathDrafts[profileID] = updated.mountPath
+            } else {
+                mountPathDrafts[profileID] = current.mountPath
+            }
+        } else {
+            model.update(updated)
+            mountPathDrafts[profileID] = updated.mountPath
         }
         refreshDNS()
     }
