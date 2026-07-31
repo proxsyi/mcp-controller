@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
     private var bulkLifecycleTask: Task<Void, Never>?
     private var stopCompletions: [UUID: [() -> Void]] = [:]
     private var tailscaleDNSRefreshes: Set<String> = []
+    private var persistTask: Task<Void, Never>?
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
@@ -455,6 +456,7 @@ final class AppModel: ObservableObject {
 
     func stopImmediatelyForApplicationQuit() {
         bulkLifecycleTask?.cancel()
+        persistTask?.cancel()
         flushPersistNow()
         for profile in serverProfiles {
             gatewayManager.stop(profileID: profile.id)
@@ -508,7 +510,29 @@ final class AppModel: ObservableObject {
     }
     private func appendLog(_ id: UUID, _ text: String) { logs[id] = String(((logs[id] ?? "") + text).suffix(100_000)) }
     private func persist(immediate: Bool = false) {
-        do { try store.save(profiles) } catch { presentedError = "Could not save server profiles: \(error.localizedDescription)" }
+        persistTask?.cancel()
+        if immediate {
+            writeProfilesNow()
+            return
+        }
+        persistTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            self?.writeProfilesNow()
+        }
+    }
+
+    private func writeProfilesNow() {
+        persistTask?.cancel()
+        persistTask = nil
+        do {
+            try store.save(profiles)
+        } catch {
+            presentedError = "Could not save server profiles: \(error.localizedDescription)"
+        }
     }
 
     func flushPersistNow() {
