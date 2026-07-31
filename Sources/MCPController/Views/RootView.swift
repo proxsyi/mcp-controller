@@ -117,12 +117,27 @@ struct RootView: View {
             Text("\(model.serverProfiles.count) servers")
             Spacer(minLength: 12)
             if model.failedCount > 0 {
-                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).fixedSize()
+                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .fixedSize()
             }
             if model.runningCount > 0 {
-                Label("\(model.runningCount)", systemImage: "bolt.fill").foregroundStyle(.green).contentTransition(.numericText()).fixedSize()
+                Label("\(model.runningCount)", systemImage: "bolt.fill")
+                    .foregroundStyle(.green)
+                    .contentTransition(.numericText())
+                    .fixedSize()
+            } else if model.activeCount > 0 {
+                Label("\(model.activeCount)", systemImage: "clock.fill")
+                    .foregroundStyle(.orange)
+                    .contentTransition(.numericText())
+                    .fixedSize()
             }
-        }.textCase(nil).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.vertical, 4).padding(.trailing, 12)
+        }
+        .textCase(nil)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .padding(.trailing, 12)
     }
 
     private func copyLogs(for profile: ServerProfile, resetFailure: Bool) {
