@@ -16,6 +16,7 @@ REPO = Path(os.environ.get("MCP_CONTROLLER_REPO", HOME / "Projects/Clients/Versy
 CONFIG = Path(os.environ.get("MCP_CONTROLLER_CONFIG", HOME / "Library/Application Support/MCP Controller/servers.json"))
 APP = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
 OUTPUT = Path(os.environ.get("MCP_CONTROLLER_REPORT", HOME / f"Desktop/mcp-controller-diagnostics-{TIMESTAMP}.txt"))
+PREFERRED_CREDENTIAL = os.environ.get("MCP_CLIENT", "").strip() or os.environ.get("MCP_CREDENTIAL", "").strip()
 RESULTS = []
 PAYLOAD = json.dumps({
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -79,6 +80,19 @@ def expected_endpoint(profile):
 
 def listener(port):
     return run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"]).stdout.strip()
+
+
+def selected_token(profile):
+    credentials = profile.get("clientCredentials") or []
+    if not credentials:
+        return ""
+    if PREFERRED_CREDENTIAL:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == PREFERRED_CREDENTIAL.casefold()), None)
+        if credential is None:
+            raise SystemExit(f"Credential {PREFERRED_CREDENTIAL!r} was not found for {profile.get('name', 'Unnamed')}")
+        return credential.get("token", "")
+    notion = next((item for item in credentials if item.get("name", "").casefold() == "notion"), None)
+    return (notion or credentials[0]).get("token", "")
 
 
 def probe(label, url, token="", method="POST", timeout=10):
@@ -208,7 +222,7 @@ def main():
         gateway_port = int(profile.get("gatewayPort", 0))
         endpoint, _ = expected_endpoint(profile)
         mount = normalize_path(profile.get("mountPath"))
-        token = ((profile.get("clientCredentials") or [{}])[0].get("token") or "")
+        token = selected_token(profile)
         print(f"\n--- {name} ---")
         if not listener(local_port):
             print("[SKIP] Upstream is not running")

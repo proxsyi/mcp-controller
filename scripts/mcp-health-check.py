@@ -8,6 +8,7 @@ repo = Path(os.environ.get("MCP_CONTROLLER_REPO", home / "Projects/Clients/Versy
 config = Path(os.environ.get("MCP_CONTROLLER_CONFIG", home / "Library/Application Support/MCP Controller/servers.json"))
 app = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
 report_path = Path(os.environ.get("MCP_CONTROLLER_REPORT", home / f"Desktop/mcp-health-report-{timestamp}.txt"))
+preferred_credential = os.environ.get("MCP_CLIENT", "").strip() or os.environ.get("MCP_CREDENTIAL", "").strip()
 results = []
 payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
 
@@ -38,6 +39,18 @@ def endpoint(profile):
     return "/mcp", "fallback"
 
 def join(base, suffix): return base if suffix == "/" else base.rstrip("/") + suffix
+
+def selected_token(profile):
+    credentials = profile.get("clientCredentials") or []
+    if not credentials:
+        return ""
+    if preferred_credential:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == preferred_credential.casefold()), None)
+        if credential is None:
+            raise SystemExit(f"Credential {preferred_credential!r} was not found for {profile.get('name', 'Unnamed')}")
+        return credential.get("token", "")
+    notion = next((item for item in credentials if item.get("name", "").casefold() == "notion"), None)
+    return (notion or credentials[0]).get("token", "")
 
 def probe(label, url, token="", timeout=10):
     cmd = ["curl","-sS","-i","--no-buffer","--max-time",str(timeout),"-H","Accept: application/json, text/event-stream","-H","Content-Type: application/json","-d",payload]
@@ -91,7 +104,7 @@ def main():
         print("  upstream",local,"LISTEN" if listener(local) else "CLOSED","gateway",gateway,"LISTEN" if listener(gateway) else "CLOSED")
         print("  endpoint",ep,"("+source+")","mount",norm(p.get("mountPath")))
         print("  autoStart",p.get("autoStart"),"exclusive",p.get("exclusiveGatewayEnabled"),"compatibility",p.get("remoteClientCompatibilityEnabled"))
-        print("  route",p.get("tailscaleRouteEnabled"),p.get("exposureMode"),"public port",p.get("publicPort"),"credentials",len(creds))
+        print("  route",p.get("tailscaleRouteEnabled"),p.get("exposureMode"),"public port",p.get("publicPort"),"credentials",len(creds),[credential.get("name") for credential in creds])
 
     section("TAILSCALE")
     tailscale=next((p.get("tailscalePath") for p in profiles if p.get("tailscalePath") and os.path.exists(p.get("tailscalePath"))),None) or shutil.which("tailscale")
@@ -113,7 +126,7 @@ def main():
 
     section("END-TO-END INITIALIZE")
     for p in profiles:
-        name=p.get("name","Unnamed"); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); ep,_=endpoint(p); mount=norm(p.get("mountPath")); token=((p.get("clientCredentials") or [{}])[0].get("token") or "")
+        name=p.get("name","Unnamed"); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); ep,_=endpoint(p); mount=norm(p.get("mountPath")); token=selected_token(p)
         print("\n--- "+name+" ---")
         if not listener(local): print("[SKIP] upstream is stopped"); continue
         probe("direct upstream", "http://127.0.0.1:"+str(local)+ep)
