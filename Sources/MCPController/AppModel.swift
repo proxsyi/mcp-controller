@@ -525,13 +525,24 @@ final class AppModel: ObservableObject {
             writeProfilesNow()
             return
         }
+        let snapshot = profiles
         persistTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
             } catch {
                 return
             }
-            self?.writeProfilesNow()
+            self?.writeProfilesAsync(snapshot)
+            self?.persistTask = nil
+        }
+    }
+
+    private func writeProfilesAsync(_ snapshot: [ServerProfile]) {
+        store.saveAsync(snapshot) { [weak self] error in
+            guard let error else { return }
+            Task { @MainActor [weak self] in
+                self?.presentedError = "Could not save server profiles: \(error.localizedDescription)"
+            }
         }
     }
 
