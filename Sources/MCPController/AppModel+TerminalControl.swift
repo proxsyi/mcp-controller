@@ -105,7 +105,8 @@ extension AppModel {
         case "use-default-cli": applyDefaultTailscaleCLIToAllProfiles(); return .ok("Updated every profile to use the default Tailscale CLI path.")
         case "one-ai":
             let enabled = request.arguments["enabled"] == "true"
-            applyGlobalOneAIPolicy(enabled); UserDefaults.standard.set(enabled, forKey: "settings.oneAIOnly")
+            applyGlobalOneAIPolicy(enabled)
+            AppSettings.shared?.oneAIOnly = enabled
             return .ok("One-AI policy \(enabled ? "enabled" : "disabled").")
         case "pending":
             return pendingResponse(for: request.target)

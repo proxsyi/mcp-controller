@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 final class AppSettings: ObservableObject {
+    static weak var shared: AppSettings?
+
     private enum Key {
         static let oneAIOnly = "settings.oneAIOnly"
         static let preferredSettingsSection = "settings.preferredSettingsSection"
@@ -18,5 +20,6 @@ final class AppSettings: ObservableObject {
     init() {
         oneAIOnly = UserDefaults.standard.bool(forKey: Key.oneAIOnly)
         preferredSettingsSection = UserDefaults.standard.string(forKey: Key.preferredSettingsSection) ?? "app"
+        Self.shared = self
     }
 }
