@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live, profile-specific MCP integration tests for MCP Controller."""
 from __future__ import annotations
-import argparse, json, os, subprocess, sys, time, urllib.error, urllib.request
+import argparse, json, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 PROFILE_SPECS = {

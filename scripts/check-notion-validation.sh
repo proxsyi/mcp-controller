@@ -7,7 +7,7 @@ WORK="$(mktemp -d /tmp/notion-mcp-validation.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$CONFIG" "$WORK/profile.json" <<'PY'
-import json, subprocess, sys
+import json, os, subprocess, sys
 
 config_path, output_path = sys.argv[1], sys.argv[2]
 with open(config_path) as f:
@@ -17,7 +17,7 @@ if not profiles:
 
 target_name = None
 for key in ("MCP_PROFILE", "PROFILE_NAME"):
-    value = __import__("os").environ.get(key, "").strip()
+    value = os.environ.get(key, "").strip()
     if value:
         target_name = value
         break
@@ -36,7 +36,7 @@ if not profile:
 if not profile:
     raise SystemExit("No suitable remote profile found")
 
-client_name = __import__("os").environ.get("MCP_CLIENT", "").strip()
+client_name = os.environ.get("MCP_CLIENT", "").strip()
 credential = None
 if client_name:
     credential = next((c for c in profile.get("clientCredentials", []) if c.get("name", "").casefold() == client_name.casefold()), None)
