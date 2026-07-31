@@ -22,7 +22,7 @@ struct GatewayAccessView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Toggle("Access control", isOn: $profile.exclusiveGatewayEnabled)
+                    Toggle("Access control", isOn: protectionBinding)
                         .labelsHidden()
                 }
 
@@ -76,6 +76,22 @@ struct GatewayAccessView: View {
             let normalized = value.joined(separator: ", ")
             if originText != normalized { originText = normalized }
         }
+    }
+
+    private var protectionBinding: Binding<Bool> {
+        Binding(
+            get: { profile.exclusiveGatewayEnabled },
+            set: { enabled in
+                profile.exclusiveGatewayEnabled = enabled
+                guard enabled else { return }
+                if profile.clientCredentials.isEmpty {
+                    profile.clientCredentials = [.generate(name: "Primary AI")]
+                }
+                if profile.gatewayPort == profile.localPort {
+                    profile.gatewayPort = model.nextAvailableGatewayPort(startingAt: profile.gatewayPort + 1)
+                }
+            }
+        )
     }
 
     private var leaseSummary: some View {
