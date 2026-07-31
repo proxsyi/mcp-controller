@@ -180,7 +180,11 @@ final class AppModel: ObservableObject {
             let dnsName = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath)
             guard let self else { return }
             self.tailscaleDNSRefreshes.remove(cliPath)
-            if let dnsName, !dnsName.isEmpty { self.tailscaleDNSNames[cliPath] = dnsName }
+            if let dnsName, !dnsName.isEmpty {
+                self.tailscaleDNSNames[cliPath] = dnsName
+            } else {
+                self.tailscaleDNSNames.removeValue(forKey: cliPath)
+            }
         }
     }
 
