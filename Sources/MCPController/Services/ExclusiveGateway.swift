@@ -396,12 +396,31 @@ private final class ExclusiveGateway: @unchecked Sendable {
         let headers = "HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
         var payload = Data(headers.utf8)
         payload.append(HTTPChunkedBodyEncoder.encode(body))
-        connection.send(content: payload, completion: .contentProcessed { error in
+        connection.send(content: payload, completion: .contentProcessed { [weak self, weak connection] error in
+            guard let self, let connection else { return }
             if let error {
                 self.logHandler("Compatibility session stream failed: \(error.localizedDescription)\n")
                 connection.cancel()
+            } else {
+                self.scheduleCompatibilitySessionKeepalive(connection)
             }
         })
+    }
+
+    private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection) {
+        queue.asyncAfter(deadline: .now() + 15) { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            let keepalive = HTTPChunkedBodyEncoder.encode(Data(": keepalive\n\n".utf8))
+            connection.send(content: keepalive, completion: .contentProcessed { [weak self, weak connection] error in
+                guard let self, let connection else { return }
+                if let error {
+                    self.logHandler("Compatibility session keepalive ended: \(error.localizedDescription)\n")
+                    connection.cancel()
+                } else {
+                    self.scheduleCompatibilitySessionKeepalive(connection)
+                }
+            })
+        }
     }
 
     private func sendCompatibilityHandshake(_ request: HTTPRequest, connection: NWConnection) {
@@ -448,14 +467,16 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         let upstream = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
         let deadline = GatewayRequestDeadline()
-        queue.asyncAfter(deadline: .now() + TimeInterval(profile.publicRequestTimeoutSeconds)) { [weak self, weak upstream, weak connection] in
-            guard let self, let upstream, let connection, deadline.claim() else { return }
-            self.logHandler("Public MCP request timed out after \(self.profile.publicRequestTimeoutSeconds) seconds.\n")
-            upstream.cancel()
-            if deadline.responseStarted {
-                connection.cancel()
-            } else {
-                self.sendError(connection, status: 504, message: "The MCP request exceeded this route’s \(self.profile.publicRequestTimeoutSeconds)-second timeout.", requestID: request.jsonRPCID)
+        if GatewayRequestDeadlinePolicy.applies(to: request.method) {
+            queue.asyncAfter(deadline: .now() + TimeInterval(profile.publicRequestTimeoutSeconds)) { [weak self, weak upstream, weak connection] in
+                guard let self, let upstream, let connection, deadline.claim() else { return }
+                self.logHandler("Public MCP request timed out after \(self.profile.publicRequestTimeoutSeconds) seconds.\n")
+                upstream.cancel()
+                if deadline.responseStarted {
+                    connection.cancel()
+                } else {
+                    self.sendError(connection, status: 504, message: "The MCP request exceeded this route’s \(self.profile.publicRequestTimeoutSeconds)-second timeout.", requestID: request.jsonRPCID)
+                }
             }
         }
         upstream.stateUpdateHandler = { [weak self] state in
@@ -702,6 +723,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 }
 
+enum GatewayRequestDeadlinePolicy {
+    static func applies(to method: String) -> Bool {
+        method.uppercased() != "GET"
+    }
+}
+
 enum GatewayRequestMethodPolicy {
     static func accepts(_ method: String, remoteClientCompatibilityEnabled: Bool) -> Bool {
         switch method.uppercased() {
@@ -882,6 +909,7 @@ private enum HTTPStatus {
         case 500: "Internal Server Error"
         case 502: "Bad Gateway"
         case 503: "Service Unavailable"
+        case 504: "Gateway Timeout"
         default: "Response"
         }
     }

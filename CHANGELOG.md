@@ -33,6 +33,11 @@ All notable changes to MCP Controller are documented here.
 
 ## Unreleased
 
+### Fixed
+- Added 15-second SSE keepalives for compatibility session streams so Notion and Tailscale do not discard healthy idle Mac MCP connections.
+- Exempted long-lived GET session streams from the bounded public tool-request deadline.
+- Extended the installed Visual, AppleScript, and Remote bridge session timeouts from 10 minutes to 24 hours.
+
 ## v0.7.6
 
 ### Added
