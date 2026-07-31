@@ -275,11 +275,20 @@ private final class ExclusiveGateway: @unchecked Sendable {
             request.method,
             remoteClientCompatibilityEnabled: profile.remoteClientCompatibilityEnabled
         ) else {
-            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, DELETE, and OPTIONS requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
             return
         }
-        if let origin = request.headers["origin"], !profile.allowedOrigins.contains(origin) {
+        if let origin = request.headers["origin"], !isAllowedOrigin(origin) {
             sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+            return
+        }
+        if request.method == "OPTIONS" {
+            sendPreflightOK(
+                connection,
+                origin: request.headers["origin"],
+                requestedHeaders: request.headers["access-control-request-headers"],
+                bufferedData: bufferedData
+            )
             return
         }
         if request.method == "HEAD" {
@@ -379,6 +388,32 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 keepConnectionOpen: true,
                 bufferedData: bufferedData
             )
+        }
+    }
+
+    private func isAllowedOrigin(_ origin: String) -> Bool {
+        let configured = profile.allowedOrigins.map(Self.normalizedOrigin)
+        guard !configured.isEmpty else { return false }
+        let normalized = Self.normalizedOrigin(origin)
+        return configured.contains(normalized)
+    }
+
+    private static func normalizedOrigin(_ origin: String) -> String {
+        let trimmed = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else {
+            return trimmed.lowercased()
+        }
+        let effectivePort = components.port ?? defaultPort(for: scheme)
+        return "\(scheme)://\(host):\(effectivePort)"
+    }
+
+    private static func defaultPort(for scheme: String) -> Int {
+        switch scheme {
+        case "http": 80
+        case "https": 443
+        default: 0
         }
     }
 
@@ -536,9 +571,6 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         headers += "User-Agent: MCP Controller\r\n"
         headers += "Content-Length: \(request.body.count)\r\n"
-        // Each accepted gateway socket currently carries exactly one HTTP request.
-        // Ask the upstream to close after its response so reverse proxies never reuse
-        // a backend connection that the gateway is still draining.
         headers += "Connection: close\r\n\r\n"
         var data = Data(headers.utf8)
         data.append(request.body)
@@ -636,8 +668,31 @@ private final class ExclusiveGateway: @unchecked Sendable {
 
     private func sendHeadOK(_ connection: NWConnection, bufferedData: Data = Data()) {
         let response = Data(
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE\r\nCache-Control: no-store\r\n\r\n".utf8
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE, OPTIONS\r\nCache-Control: no-store\r\n\r\n".utf8
         )
+        send(connection, data: response, keepConnectionOpen: true, bufferedData: bufferedData)
+    }
+
+    private func sendPreflightOK(
+        _ connection: NWConnection,
+        origin: String?,
+        requestedHeaders: String?,
+        bufferedData: Data = Data()
+    ) {
+        let allowOrigin = origin ?? "null"
+        let allowHeaders = requestedHeaders?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? requestedHeaders!
+            : "authorization, content-type, mcp-session-id, mcp-protocol-version"
+        let response = Data((
+            "HTTP/1.1 204 No Content\r\n" +
+            "Content-Length: 0\r\n" +
+            "Allow: GET, HEAD, POST, DELETE, OPTIONS\r\n" +
+            "Access-Control-Allow-Origin: \(allowOrigin)\r\n" +
+            "Access-Control-Allow-Methods: GET, HEAD, POST, DELETE, OPTIONS\r\n" +
+            "Access-Control-Allow-Headers: \(allowHeaders)\r\n" +
+            "Access-Control-Max-Age: 600\r\n" +
+            "Vary: Origin, Access-Control-Request-Headers\r\n\r\n"
+        ).utf8)
         send(connection, data: response, keepConnectionOpen: true, bufferedData: bufferedData)
     }
 
@@ -732,7 +787,7 @@ enum GatewayRequestDeadlinePolicy {
 enum GatewayRequestMethodPolicy {
     static func accepts(_ method: String, remoteClientCompatibilityEnabled: Bool) -> Bool {
         switch method.uppercased() {
-        case "POST", "GET", "DELETE":
+        case "POST", "GET", "DELETE", "OPTIONS":
             true
         case "HEAD":
             remoteClientCompatibilityEnabled
@@ -864,7 +919,6 @@ private struct HTTPRequest {
         return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + length)
     }
 }
-
 
 private enum HTTPResponseFraming {
     static func isComplete(_ data: Data) -> Bool {
