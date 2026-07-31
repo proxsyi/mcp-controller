@@ -34,10 +34,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
 
     var normalizedMountPath: String {
         guard isServer else { return "/" }
-        let trimmed = mountPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "/" { return "/" }
-        let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
-        return prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
+        return Self.normalizedPath(mountPath)
     }
     var exposedLocalPort: Int { exclusiveGatewayEnabled ? gatewayPort : localPort }
 
@@ -71,9 +68,17 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     }
 
     private static func normalizedEndpointPath(_ path: String) -> String {
+        normalizedPath(path)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "/" }
-        return trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        guard !trimmed.isEmpty, trimmed != "/" else { return "/" }
+        var normalized = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
     }
 
     func validationErrors() -> [String] {
