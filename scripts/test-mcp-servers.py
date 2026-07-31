@@ -102,6 +102,20 @@ def mount_path(profile: dict) -> str:
     value = value if value.startswith("/") else "/" + value
     return value[:-1] if value.endswith("/") else value
 
+def endpoint_path(profile: dict) -> str:
+    args = [str(value) for value in profile.get("arguments", [])]
+    for index, argument in enumerate(args):
+        if argument == "--streamableHttpPath" and index + 1 < len(args):
+            return mount_path({"mountPath": args[index + 1]})
+        if argument.startswith("--streamableHttpPath="):
+            return mount_path({"mountPath": argument.split("=", 1)[1]})
+        if argument == "--transport" and index + 1 < len(args):
+            if args[index + 1].lower() in ("streamable-http", "streamablehttp"):
+                return "/mcp"
+        if argument.lower() in ("--transport=streamable-http", "--transport=streamablehttp"):
+            return "/mcp"
+    return "/mcp"
+
 def public_url(base_url: str, profile: dict) -> str:
     parsed = urlsplit(base_url)
     mount = mount_path(profile)
@@ -133,7 +147,7 @@ def main() -> int:
             p = profiles[pid]
             assert p["name"] == spec["name"], f"name is {p['name']!r}"
             assert p.get("description") == spec["description"], f"description is {p.get('description')!r}"
-            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else public_url(base_url, p)
+            url = f"http://127.0.0.1:{p['localPort']}{endpoint_path(p)}" if args.local else public_url(base_url, p)
             client = Client(url, token_for(p, args.credential), args.timeout)
             client.initialize()
             status, body = client.post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
