@@ -158,7 +158,7 @@ struct ServerDetailView: View {
         case .setup:
             setupContent
         case .access:
-            ExposureSettingsView(profile: $draft, phase: phase)
+            ExposureSettingsView(profile: $draft, phase: phase, persistLiveChange: syncLiveProfile)
         case .activity:
             logsContent
         }
@@ -366,6 +366,16 @@ struct ServerDetailView: View {
         draft = savedProfile
         argumentsText = savedProfile.arguments.joined(separator: "\n")
         environmentText = savedProfile.environment.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        Task { @MainActor in
+            await Task.yield()
+            isSynchronizingDraft = false
+        }
+    }
+
+    private func syncLiveProfile(_ profile: ServerProfile) {
+        isSynchronizingDraft = true
+        draft = profile
+        savedProfile = profile
         Task { @MainActor in
             await Task.yield()
             isSynchronizingDraft = false

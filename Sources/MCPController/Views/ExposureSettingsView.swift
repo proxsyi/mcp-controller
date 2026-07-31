@@ -5,6 +5,7 @@ struct ExposureSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var profile: ServerProfile
     let phase: RuntimePhase
+    let persistLiveChange: (ServerProfile) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
 
@@ -251,34 +252,32 @@ struct ExposureSettingsView: View {
             if updated.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: updated.tailscalePath) {
                 updated.tailscalePath = TailscaleRouteService.defaultCLIPath
             }
-            if phase.isActive {
+            if model.startTailscaleRoute(updated) {
                 profile = updated
-            } else if model.startTailscaleRoute(updated) {
-                profile = updated
+                persistLiveChange(updated)
             }
         } else {
             let current = profile
             var updated = profile
             updated.tailscaleRouteEnabled = false
-            if phase.isActive {
+            if model.stopTailscaleRoute(current) {
                 profile = updated
-            } else if model.stopTailscaleRoute(current) {
-                profile = updated
+                persistLiveChange(updated)
             }
         }
         refreshDNS()
     }
 
     private func applyRouteConfigurationChange(_ updated: ServerProfile) {
-        if phase.isActive {
-            profile = updated
-        } else if updated.tailscaleRouteEnabled {
+        if updated.tailscaleRouteEnabled {
             if model.startTailscaleRoute(updated) {
                 profile = updated
+                persistLiveChange(updated)
             }
         } else {
             model.update(updated)
             profile = updated
+            persistLiveChange(updated)
         }
         refreshDNS()
     }
