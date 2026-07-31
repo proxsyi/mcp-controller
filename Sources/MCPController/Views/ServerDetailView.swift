@@ -403,7 +403,7 @@ struct ServerDetailView: View {
             get: { String(draft[keyPath: keyPath]) },
             set: { text in
                 let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) {
+                if let value = Int(digits), (1024...65535).contains(value) {
                     draft[keyPath: keyPath] = value
                 }
             }
