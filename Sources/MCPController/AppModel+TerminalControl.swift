@@ -106,7 +106,11 @@ extension AppModel {
         case "one-ai":
             let enabled = request.arguments["enabled"] == "true"
             applyGlobalOneAIPolicy(enabled)
-            AppSettings.shared?.oneAIOnly = enabled
+            if let shared = AppSettings.shared {
+                shared.oneAIOnly = enabled
+            } else {
+                UserDefaults.standard.set(enabled, forKey: "settings.oneAIOnly")
+            }
             return .ok("One-AI policy \(enabled ? "enabled" : "disabled").")
         case "pending":
             return pendingResponse(for: request.target)
