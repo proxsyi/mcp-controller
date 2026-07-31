@@ -136,8 +136,8 @@ for block in text.split("\n\n"):
     if not candidate:
         continue
     try:
-        payload = json.loads(candidate)
-        break
+            payload = json.loads(candidate)
+            break
     except Exception:
         continue
 if payload is None:
@@ -188,4 +188,4 @@ request options \
   "$URL"
 
 echo
-echo "Saved report: $REPORT"
+ echo "Saved report: $REPORT"
