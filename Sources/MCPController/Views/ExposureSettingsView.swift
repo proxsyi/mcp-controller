@@ -9,6 +9,8 @@ struct ExposureSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
     @State private var dnsRefreshToken = UUID()
+    @State private var mountPathText = ""
+    @FocusState private var routePathIsFocused: Bool
 
     var body: some View {
         VStack(spacing: 16) {
@@ -17,10 +19,19 @@ struct ExposureSettingsView: View {
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
-        .onAppear { refreshDNS() }
+        .onAppear {
+            mountPathText = profile.mountPath
+            refreshDNS()
+        }
         .onChange(of: profile.tailscalePath) { _, _ in refreshDNS() }
         .onChange(of: profile.tailscaleRouteEnabled) { _, _ in refreshDNS() }
         .onChange(of: profile.exposureMode) { _, _ in refreshDNS() }
+        .onChange(of: profile.mountPath) { _, value in
+            if !routePathIsFocused { mountPathText = value }
+        }
+        .onChange(of: routePathIsFocused) { _, focused in
+            if !focused { commitMountPath() }
+        }
     }
 
     private var isLiveFunnelRouteLocked: Bool {
@@ -66,9 +77,11 @@ struct ExposureSettingsView: View {
                         }
                         GridRow {
                             Text("Route path").foregroundStyle(.secondary)
-                            TextField("/mcp/server", text: mountPathBinding)
+                            TextField("/mcp/server", text: $mountPathText)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
+                                .focused($routePathIsFocused)
+                                .onSubmit { commitMountPath() }
                                 .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
@@ -93,7 +106,7 @@ struct ExposureSettingsView: View {
 
                     Text(isLiveFunnelRouteLocked
                          ? "Stop the shared Funnel in Settings before editing this live public route."
-                         : "Route changes are applied directly when this server’s remote route is enabled.")
+                         : "Route changes are applied when you press Return or leave the route path field.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -213,17 +226,6 @@ struct ExposureSettingsView: View {
         )
     }
 
-    private var mountPathBinding: Binding<String> {
-        Binding(
-            get: { profile.mountPath },
-            set: { value in
-                var updated = profile
-                updated.mountPath = value
-                applyRouteConfigurationChange(updated)
-            }
-        )
-    }
-
     private var compatibilityBinding: Binding<Bool> {
         Binding(
             get: { profile.remoteClientCompatibilityEnabled },
@@ -259,6 +261,7 @@ struct ExposureSettingsView: View {
             }
             if model.startTailscaleRoute(updated) {
                 profile = updated
+                mountPathText = updated.mountPath
                 persistLiveChange(updated)
             }
         } else {
@@ -273,18 +276,28 @@ struct ExposureSettingsView: View {
         refreshDNS()
     }
 
-    private func applyRouteConfigurationChange(_ updated: ServerProfile) {
+    @discardableResult
+    private func applyRouteConfigurationChange(_ updated: ServerProfile) -> Bool {
         if updated.tailscaleRouteEnabled {
-            if model.startTailscaleRoute(updated) {
-                profile = updated
-                persistLiveChange(updated)
-            }
+            guard model.startTailscaleRoute(updated) else { return false }
+            profile = updated
+            persistLiveChange(updated)
         } else {
             model.update(updated)
             profile = updated
             persistLiveChange(updated)
         }
         refreshDNS()
+        return true
+    }
+
+    private func commitMountPath() {
+        guard mountPathText != profile.mountPath else { return }
+        var updated = profile
+        updated.mountPath = mountPathText
+        if !applyRouteConfigurationChange(updated) {
+            mountPathText = profile.mountPath
+        }
     }
 
     private func refreshDNS() {
