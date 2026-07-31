@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct CommandResult: Sendable {
     let output: String
@@ -7,13 +8,13 @@ struct CommandResult: Sendable {
 }
 
 enum CommandRunner {
-    static func runAsync(executable: String, arguments: [String]) async throws -> CommandResult {
+    static func runAsync(executable: String, arguments: [String], timeout: TimeInterval? = nil) async throws -> CommandResult {
         try await Task.detached(priority: .utility) {
-            try run(executable: executable, arguments: arguments)
+            try run(executable: executable, arguments: arguments, timeout: timeout)
         }.value
     }
 
-    static func run(executable: String, arguments: [String]) throws -> CommandResult {
+    static func run(executable: String, arguments: [String], timeout: TimeInterval? = nil) throws -> CommandResult {
         let process = Process()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -21,11 +22,71 @@ enum CommandRunner {
         process.arguments = arguments
         process.standardOutput = outputPipe
         process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
 
-        let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in completion.signal() }
+        try process.run()
+
+        var outputData = Data()
+        var errorData = Data()
+        let outputLock = NSLock()
+        let errorLock = NSLock()
+        let readers = DispatchGroup()
+
+        readers.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            outputData = data
+            outputLock.unlock()
+            readers.leave()
+        }
+
+        readers.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            errorLock.lock()
+            errorData = data
+            errorLock.unlock()
+            readers.leave()
+        }
+
+        let timedOut: Bool
+        if let timeout {
+            timedOut = completion.wait(timeout: .now() + timeout) == .timedOut
+            if timedOut {
+                process.terminate()
+                if completion.wait(timeout: .now() + 2) == .timedOut, process.isRunning {
+                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                    _ = completion.wait(timeout: .now() + 2)
+                }
+            }
+        } else {
+            completion.wait()
+            timedOut = false
+        }
+
+        readers.wait()
+
+        let output = String(decoding: outputData, as: UTF8.self)
+        let error = String(decoding: errorData, as: UTF8.self)
+
+        if timedOut {
+            throw CommandRunnerError.timedOut(executable: executable, arguments: arguments, output: output, error: error)
+        }
+
         return CommandResult(output: output, error: error, exitCode: process.terminationStatus)
+    }
+}
+
+enum CommandRunnerError: LocalizedError {
+    case timedOut(executable: String, arguments: [String], output: String, error: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut(let executable, let arguments, _, _):
+            let joined = ([executable] + arguments).joined(separator: " ")
+            return "Command timed out: \(joined)"
+        }
     }
 }

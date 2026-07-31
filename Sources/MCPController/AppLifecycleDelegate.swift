@@ -2,8 +2,16 @@ import AppKit
 
 @MainActor
 final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    private var isTerminating = false
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        AppModel.shared?.shutdownForApplicationQuit()
-        return .terminateNow
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        Task { @MainActor in
+            AppModel.shared?.shutdownForApplicationQuit()
+            sender.reply(toApplicationShouldTerminate: true)
+            self.isTerminating = false
+        }
+        return .terminateLater
     }
 }

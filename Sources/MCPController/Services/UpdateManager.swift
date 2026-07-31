@@ -20,11 +20,15 @@ final class UpdateManager: ObservableObject {
     private var startedAutomaticChecks = false
     private var timer: Timer?
     private var latestRelease: GitHubRelease?
+    private var checkTask: Task<Void, Never>?
+    private var installTask: Task<Void, Never>?
 
     var updateAvailable: Bool { availableVersion != nil }
 
     deinit {
         timer?.invalidate()
+        checkTask?.cancel()
+        installTask?.cancel()
     }
 
     func beginAutomaticChecks() {
@@ -32,7 +36,7 @@ final class UpdateManager: ObservableObject {
         startedAutomaticChecks = true
         Task {
             try? await Task.sleep(for: .seconds(2))
-            checkForUpdates(silent: true)
+            await MainActor.run { self.checkForUpdates(silent: true) }
         }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 21_600, repeats: true) { [weak self] _ in
@@ -41,96 +45,143 @@ final class UpdateManager: ObservableObject {
     }
 
     func checkForUpdates(silent: Bool = false) {
-        guard !isChecking else { return }
+        guard checkTask == nil else { return }
         isChecking = true
         if !silent { statusMessage = "Checking GitHub…" }
 
-        defer { isChecking = false }
-        do {
-            let release = try loadLatestRelease()
-            latestRelease = release
-            let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
-            let latest = release.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            if isVersion(latest, newerThan: current) {
-                availableVersion = latest
-                statusMessage = "Version \(latest) is available."
-            } else {
-                availableVersion = nil
-                statusMessage = "MCP Controller is up to date."
+        let repository = self.repository
+        let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+
+        checkTask = Task.detached(priority: .utility) { [weak self] in
+            do {
+                let release = try await Self.loadLatestRelease(repository: repository)
+                let latest = release.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+                await MainActor.run {
+                    guard let self else { return }
+                    self.latestRelease = release
+                    if Self.isVersion(latest, newerThan: currentVersion) {
+                        self.availableVersion = latest
+                        self.statusMessage = "Version \(latest) is available."
+                    } else {
+                        self.availableVersion = nil
+                        self.statusMessage = "MCP Controller is up to date."
+                    }
+                    self.isChecking = false
+                    self.checkTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    if !silent { self.statusMessage = error.localizedDescription }
+                    self.isChecking = false
+                    self.checkTask = nil
+                }
             }
-        } catch {
-            if !silent { statusMessage = error.localizedDescription }
         }
     }
 
     func installAvailableUpdate() {
-        guard let release = latestRelease, updateAvailable, !isInstalling else { return }
+        guard let release = latestRelease, updateAvailable, installTask == nil else { return }
         isInstalling = true
         statusMessage = "Downloading version \(availableVersion ?? release.tag_name)…"
 
-        let fileManager = FileManager.default
-        var staging: URL?
+        let repository = self.repository
+        let assetName = self.assetName
+        let currentBundleIdentifier = Bundle.main.bundleIdentifier
+        let currentAppURL = Bundle.main.bundleURL
 
-        do {
-            let gh = try githubCLIPath()
-            guard release.assets.contains(where: { $0.name == assetName }) else {
-                throw UpdateError.message("The release does not include \(assetName).")
+        installTask = Task.detached(priority: .utility) { [weak self] in
+            let fileManager = FileManager.default
+            var staging: URL?
+
+            do {
+                let gh = try Self.githubCLIPath()
+                guard release.assets.contains(where: { $0.name == assetName }) else {
+                    throw UpdateError.message("The release does not include \(assetName).")
+                }
+
+                let workingDirectory = fileManager.temporaryDirectory
+                    .appendingPathComponent("MCPControllerUpdate-\(UUID().uuidString)", isDirectory: true)
+                try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+                staging = workingDirectory
+
+                let download = try await CommandRunner.runAsync(
+                    executable: gh,
+                    arguments: ["release", "download", release.tag_name, "--repo", repository, "--pattern", assetName, "--dir", workingDirectory.path, "--clobber"],
+                    timeout: 180
+                )
+                guard download.exitCode == 0 else {
+                    throw UpdateError.message(download.error.isEmpty ? download.output : download.error)
+                }
+
+                let archive = workingDirectory.appendingPathComponent(assetName)
+                let unpacked = workingDirectory.appendingPathComponent("unpacked", isDirectory: true)
+                try fileManager.createDirectory(at: unpacked, withIntermediateDirectories: true)
+                let expand = try await CommandRunner.runAsync(
+                    executable: "/usr/bin/ditto",
+                    arguments: ["-x", "-k", archive.path, unpacked.path],
+                    timeout: 120
+                )
+                guard expand.exitCode == 0 else {
+                    throw UpdateError.message(expand.error.isEmpty ? expand.output : expand.error)
+                }
+
+                let newApp = unpacked.appendingPathComponent("MCP Controller.app", isDirectory: true)
+                guard fileManager.fileExists(atPath: newApp.path),
+                      Bundle(url: newApp)?.bundleIdentifier == currentBundleIdentifier else {
+                    throw UpdateError.message("The downloaded app has an unexpected bundle identifier.")
+                }
+                let verification = try await CommandRunner.runAsync(
+                    executable: "/usr/bin/codesign",
+                    arguments: ["--verify", "--deep", "--strict", newApp.path],
+                    timeout: 60
+                )
+                guard verification.exitCode == 0 else {
+                    throw UpdateError.message("The downloaded app failed code-signature verification.")
+                }
+
+                try Self.launchInstaller(newApp: newApp, currentApp: currentAppURL, staging: workingDirectory)
+                await MainActor.run {
+                    guard let self else { return }
+                    self.statusMessage = "Installing update…"
+                    self.installTask = nil
+                    NSApplication.shared.terminate(nil)
+                }
+            } catch {
+                if let staging {
+                    try? fileManager.removeItem(at: staging)
+                }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.isInstalling = false
+                    self.installTask = nil
+                    self.statusMessage = error.localizedDescription
+                }
             }
-
-            let workingDirectory = fileManager.temporaryDirectory
-                .appendingPathComponent("MCPControllerUpdate-\(UUID().uuidString)", isDirectory: true)
-            try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-            staging = workingDirectory
-
-            let download = try CommandRunner.run(
-                executable: gh,
-                arguments: ["release", "download", release.tag_name, "--repo", repository, "--pattern", assetName, "--dir", workingDirectory.path, "--clobber"]
-            )
-            guard download.exitCode == 0 else { throw UpdateError.message(download.error.isEmpty ? download.output : download.error) }
-
-            let archive = workingDirectory.appendingPathComponent(assetName)
-            let unpacked = workingDirectory.appendingPathComponent("unpacked", isDirectory: true)
-            try fileManager.createDirectory(at: unpacked, withIntermediateDirectories: true)
-            let expand = try CommandRunner.run(executable: "/usr/bin/ditto", arguments: ["-x", "-k", archive.path, unpacked.path])
-            guard expand.exitCode == 0 else { throw UpdateError.message(expand.error.isEmpty ? expand.output : expand.error) }
-
-            let newApp = unpacked.appendingPathComponent("MCP Controller.app", isDirectory: true)
-            guard fileManager.fileExists(atPath: newApp.path),
-                  Bundle(url: newApp)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-                throw UpdateError.message("The downloaded app has an unexpected bundle identifier.")
-            }
-            let verification = try CommandRunner.run(executable: "/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", newApp.path])
-            guard verification.exitCode == 0 else { throw UpdateError.message("The downloaded app failed code-signature verification.") }
-
-            try launchInstaller(newApp: newApp, currentApp: Bundle.main.bundleURL, staging: workingDirectory)
-            statusMessage = "Installing update…"
-            NSApplication.shared.terminate(nil)
-        } catch {
-            if let staging {
-                try? fileManager.removeItem(at: staging)
-            }
-            isInstalling = false
-            statusMessage = error.localizedDescription
         }
     }
 
-    private func loadLatestRelease() throws -> GitHubRelease {
+    private static func loadLatestRelease(repository: String) async throws -> GitHubRelease {
         let gh = try githubCLIPath()
-        let result = try CommandRunner.run(executable: gh, arguments: ["api", "repos/\(repository)/releases/latest"])
+        let result = try await CommandRunner.runAsync(
+            executable: gh,
+            arguments: ["api", "repos/\(repository)/releases/latest"],
+            timeout: 30
+        )
         guard result.exitCode == 0 else {
             throw UpdateError.message("Could not read the private GitHub release. Make sure GitHub CLI is signed in and a release exists.")
         }
         return try JSONDecoder().decode(GitHubRelease.self, from: Data(result.output.utf8))
     }
 
-    private func githubCLIPath() throws -> String {
+    private static func githubCLIPath() throws -> String {
         for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
         throw UpdateError.message("GitHub CLI is required for private-repository updates. Install it with brew install gh, then run gh auth login.")
     }
 
-    private func launchInstaller(newApp: URL, currentApp: URL, staging: URL) throws {
+    private static func launchInstaller(newApp: URL, currentApp: URL, staging: URL) throws {
         let script = staging.appendingPathComponent("install-update.sh")
         let contents = """
         #!/bin/zsh
@@ -160,7 +211,7 @@ final class UpdateManager: ObservableObject {
         try process.run()
     }
 
-    private func isVersion(_ candidate: String, newerThan current: String) -> Bool {
+    private static func isVersion(_ candidate: String, newerThan current: String) -> Bool {
         let lhs = candidate.split(separator: ".").map { Int($0) ?? 0 }
         let rhs = current.split(separator: ".").map { Int($0) ?? 0 }
         for index in 0..<max(lhs.count, rhs.count) {
