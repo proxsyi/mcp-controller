@@ -432,7 +432,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopAll() {
-        let queue = serverProfiles.map(\.id).filter { phase(for: $0.id).isActive }
+        let queue = serverProfiles.map(\.id).filter { phase(for: $0).isActive }
         guard !queue.isEmpty else { return }
         bulkLifecycleTask?.cancel()
         isProcessingBulkLifecycleAction = true
