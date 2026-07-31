@@ -23,8 +23,8 @@ struct MenuBarView: View {
                 }
             }
             Divider()
-            if model.serverProfiles.isEmpty {
-                Label("No servers configured", systemImage: "server.rack")
+            if model.profiles.isEmpty {
+                Label("No items configured", systemImage: "server.rack")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 4)
@@ -44,7 +44,7 @@ struct MenuBarView: View {
                         .disabled(model.runningCount == 0 || model.isProcessingBulkLifecycleAction)
                     Button("Start Everything", systemImage: "play.fill") { model.startAll() }
                         .controlSize(.small)
-                        .disabled(model.serverProfiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
+                        .disabled(model.serverProfiles.isEmpty || model.serverProfiles.allSatisfy { model.phase(for: $0.id).isActive } || model.isProcessingBulkLifecycleAction)
                     Button("Release All", systemImage: "arrow.uturn.left.circle") { model.releaseAllLeases() }
                         .controlSize(.small)
                         .disabled(model.activeLeaseCount == 0)
