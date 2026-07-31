@@ -23,6 +23,10 @@ final class UpdateManager: ObservableObject {
 
     var updateAvailable: Bool { availableVersion != nil }
 
+    deinit {
+        timer?.invalidate()
+    }
+
     func beginAutomaticChecks() {
         guard !startedAutomaticChecks else { return }
         startedAutomaticChecks = true
@@ -30,6 +34,7 @@ final class UpdateManager: ObservableObject {
             try? await Task.sleep(for: .seconds(2))
             checkForUpdates(silent: true)
         }
+        timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 21_600, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.checkForUpdates(silent: true) }
         }
@@ -63,40 +68,47 @@ final class UpdateManager: ObservableObject {
         isInstalling = true
         statusMessage = "Downloading version \(availableVersion ?? release.tag_name)…"
 
+        let fileManager = FileManager.default
+        var staging: URL?
+
         do {
             let gh = try githubCLIPath()
             guard release.assets.contains(where: { $0.name == assetName }) else {
                 throw UpdateError.message("The release does not include \(assetName).")
             }
 
-            let staging = FileManager.default.temporaryDirectory
+            let workingDirectory = fileManager.temporaryDirectory
                 .appendingPathComponent("MCPControllerUpdate-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            staging = workingDirectory
 
             let download = try CommandRunner.run(
                 executable: gh,
-                arguments: ["release", "download", release.tag_name, "--repo", repository, "--pattern", assetName, "--dir", staging.path, "--clobber"]
+                arguments: ["release", "download", release.tag_name, "--repo", repository, "--pattern", assetName, "--dir", workingDirectory.path, "--clobber"]
             )
             guard download.exitCode == 0 else { throw UpdateError.message(download.error.isEmpty ? download.output : download.error) }
 
-            let archive = staging.appendingPathComponent(assetName)
-            let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
-            try FileManager.default.createDirectory(at: unpacked, withIntermediateDirectories: true)
+            let archive = workingDirectory.appendingPathComponent(assetName)
+            let unpacked = workingDirectory.appendingPathComponent("unpacked", isDirectory: true)
+            try fileManager.createDirectory(at: unpacked, withIntermediateDirectories: true)
             let expand = try CommandRunner.run(executable: "/usr/bin/ditto", arguments: ["-x", "-k", archive.path, unpacked.path])
             guard expand.exitCode == 0 else { throw UpdateError.message(expand.error.isEmpty ? expand.output : expand.error) }
 
             let newApp = unpacked.appendingPathComponent("MCP Controller.app", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: newApp.path),
+            guard fileManager.fileExists(atPath: newApp.path),
                   Bundle(url: newApp)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
                 throw UpdateError.message("The downloaded app has an unexpected bundle identifier.")
             }
             let verification = try CommandRunner.run(executable: "/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", newApp.path])
             guard verification.exitCode == 0 else { throw UpdateError.message("The downloaded app failed code-signature verification.") }
 
-            try launchInstaller(newApp: newApp, currentApp: Bundle.main.bundleURL, staging: staging)
+            try launchInstaller(newApp: newApp, currentApp: Bundle.main.bundleURL, staging: workingDirectory)
             statusMessage = "Installing update…"
             NSApplication.shared.terminate(nil)
         } catch {
+            if let staging {
+                try? fileManager.removeItem(at: staging)
+            }
             isInstalling = false
             statusMessage = error.localizedDescription
         }
@@ -112,7 +124,9 @@ final class UpdateManager: ObservableObject {
     }
 
     private func githubCLIPath() throws -> String {
-        for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] where FileManager.default.isExecutableFile(atPath: path) { return path }
+        for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
         throw UpdateError.message("GitHub CLI is required for private-repository updates. Install it with brew install gh, then run gh auth login.")
     }
 
@@ -126,8 +140,7 @@ final class UpdateManager: ObservableObject {
         replacement="$3"
         staging="$4"
         while /bin/kill -0 "$pid" 2>/dev/null; do /bin/sleep 0.25; done
-        backup="${current}.previous"
-        /bin/rm -rf "$backup"
+        backup="${current}.previous-${pid}-$(/bin/date +%s)"
         /bin/mv "$current" "$backup"
         if /usr/bin/ditto "$replacement" "$current"; then
           /usr/bin/open "$current"
