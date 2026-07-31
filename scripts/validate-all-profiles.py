@@ -96,11 +96,18 @@ def dns_name(profiles: list[dict]) -> str:
     result = subprocess.run([path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
     return json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
 
+def normalized_mount_path(profile: dict) -> str:
+    mount_path = (profile.get("mountPath") or "/").strip()
+    if not mount_path or mount_path == "/":
+        return "/"
+    mount_path = mount_path if mount_path.startswith("/") else "/" + mount_path
+    return mount_path[:-1] if mount_path.endswith("/") else mount_path
+
 def public_url(dns: str, profile: dict) -> str:
-    mount_path = profile.get("mountPath") or "/"
-    if not mount_path.startswith("/"):
-        mount_path = "/" + mount_path
-    return "https://" + dns + mount_path
+    mount_path = normalized_mount_path(profile)
+    public_port = int(profile.get("publicPort", 443) or 443)
+    port_suffix = "" if public_port == 443 else f":{public_port}"
+    return "https://" + dns + port_suffix + mount_path
 
 def public_surface_enabled(profile: dict) -> bool:
     return bool(profile.get("tailscaleRouteEnabled")) and profile.get("exposureMode") != "disabled"
