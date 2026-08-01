@@ -84,7 +84,21 @@ final class StatusBarController: NSObject, ObservableObject {
             popover.performClose(sender)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            configurePopoverWindowForCurrentSpace()
         }
+    }
+
+    private func configurePopoverWindowForCurrentSpace() {
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.level = .popUpMenu
+        window.hidesOnDeactivate = false
+        window.collectionBehavior.formUnion([
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .transient,
+            .ignoresCycle
+        ])
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 }
