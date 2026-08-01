@@ -25,7 +25,7 @@ def app_is_running():
     return subprocess.run(["pgrep", "-f", str(app_executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 def app_is_ready():
-    return app_is_running() and reqdir.exists() and respdir.exists()
+    return reqdir.exists() and respdir.exists()
 
 def ensure_app():
     if app_is_ready():
