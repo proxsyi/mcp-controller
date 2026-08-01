@@ -64,7 +64,12 @@ enum PortInspector {
             .contains { marker in
                 tokens.contains(marker) ||
                 tokens.contains(where: { token in
-                    marker.hasPrefix("/") && URL(fileURLWithPath: token).standardizedFileURL.path.lowercased() == URL(fileURLWithPath: marker).standardizedFileURL.path.lowercased()
+                    if marker.hasPrefix("/") {
+                        return URL(fileURLWithPath: token).standardizedFileURL.path.lowercased() ==
+                            URL(fileURLWithPath: marker).standardizedFileURL.path.lowercased()
+                    }
+                    guard token.hasPrefix("/") else { return false }
+                    return URL(fileURLWithPath: token).lastPathComponent.lowercased() == marker
                 }) ||
                 command.contains("\"\(marker)\"") ||
                 command.contains("'\(marker)'")
