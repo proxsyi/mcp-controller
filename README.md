@@ -78,7 +78,7 @@ npx -y mcp-proxy@6.5.4 --host 127.0.0.1 --port {port} --server stream --streamEn
 
 ## Terminal control
 
-The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. Between `new`, `show --secrets`, `save`, and the lifecycle/access commands below, every app action has a terminal equivalent.
+The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. Between `new`, `show --secrets`, `save`, and the lifecycle/access commands below, every app action has a terminal equivalent. Routine terminal commands wake the controller in the background and proceed as soon as the local control queue is available.
 
 ```bash
 # Inventory and details
