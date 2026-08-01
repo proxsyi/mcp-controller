@@ -35,4 +35,22 @@ final class PortInspectorTests: XCTestCase {
 
         XCTAssertTrue(PortInspector.belongsToProfile(listener, profile: profile))
     }
+
+    func testCommandBasenameIdentifiesNpxCacheExecutable() {
+        var profile = ServerProfile()
+        profile.executablePath = "/opt/homebrew/bin/npx"
+        profile.arguments = [
+            "-y",
+            "-p",
+            "@open-pencil/mcp@0.13.2",
+            "openpencil-mcp-http",
+            "--streamableHttpPath=/mcp"
+        ]
+        let listener = ListeningProcess(
+            pid: 33_280,
+            command: "node /Users/cashm/.npm/_npx/60abe243c92d5e21/node_modules/.bin/openpencil-mcp-http --streamableHttpPath=/mcp"
+        )
+
+        XCTAssertTrue(PortInspector.belongsToProfile(listener, profile: profile))
+    }
 }
