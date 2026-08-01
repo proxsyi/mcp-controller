@@ -404,7 +404,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
 
     private func isAllowedOrigin(_ origin: String) -> Bool {
         let configured = profile.allowedOrigins.map(Self.normalizedOrigin)
-        guard !configured.isEmpty else { return false }
+        guard !configured.isEmpty else { return true }
         let normalized = Self.normalizedOrigin(origin)
         return configured.contains(normalized)
     }
