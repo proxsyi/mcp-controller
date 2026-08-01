@@ -4,6 +4,7 @@
 
 ### Fixed
 - Stopped the installed `mcpctl` terminal client from falsely reporting that MCP Controller was not ready when the control request queue was already available.
+- Fixed the exclusive gateway so an empty Allowed origins field remains truly optional instead of rejecting remote MCP requests that send an `Origin` header.
 
 ## 0.8.3 — 2026-07-31
 
