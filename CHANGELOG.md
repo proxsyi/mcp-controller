@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Stopped the installed `mcpctl` terminal client from falsely reporting that MCP Controller was not ready when the control request queue was already available.
+
 ## 0.8.3 — 2026-07-31
 
 ### Fixed
@@ -60,8 +65,6 @@
 
 
 All notable changes to MCP Controller are documented here.
-
-## Unreleased
 
 ## v0.7.6
 
