@@ -6,8 +6,8 @@ Current release: `v0.8.10` (build 37).
 
 ## Current operational state — August 2, 2026
 
-- Release tag: `v0.8.10`; the release commit is the tagged `main` head.
-- Release assets: `MCP-Controller-macOS.zip` and `SHA256SUMS.txt`.
+- Release commit and tag: `36682ca` / `v0.8.10`.
+- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `f9e2a014e3964a967a5cb86244a889642226c03f27cb749b04784c24bc561040`.
 - Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
 - Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
 - Reopen behavior: Dock, Finder, terminal, and duplicate-instance requests restore the main window across full-screen Spaces. The unchanged native transient menu-bar `NSPopover` keeps its original appearance and click-away behavior while its backing AppKit window joins all Spaces and presents over full-screen apps.
