@@ -28,6 +28,15 @@ struct StatusBarPresentation: Equatable {
     }
 }
 
+struct StatusPopoverWindowConfiguration {
+    static let level = NSWindow.Level.popUpMenu
+    static let collectionBehavior: NSWindow.CollectionBehavior = [
+        .canJoinAllSpaces,
+        .fullScreenAuxiliary,
+        .transient
+    ]
+}
+
 @MainActor
 final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
@@ -84,7 +93,18 @@ final class StatusBarController: NSObject, ObservableObject {
             popover.performClose(sender)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            configurePopoverWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.configurePopoverWindow()
+            }
         }
+    }
+
+    private func configurePopoverWindow() {
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.level = StatusPopoverWindowConfiguration.level
+        window.collectionBehavior.formUnion(StatusPopoverWindowConfiguration.collectionBehavior)
+        window.makeKey()
+        window.orderFrontRegardless()
     }
 }

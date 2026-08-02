@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.10 candidate — 2026-08-02
+
+### Fixed
+- Kept the original transient `NSPopover` and its exact SwiftUI content, sizing, materials, controls, and native click-away behavior.
+- Configured only the popover's backing window to join all Spaces, act as a full-screen auxiliary window, and use popup-menu level so the unchanged popover can appear over a full-screen application.
+
 ## Documentation — 2026-08-02
 
 - Synchronized the README, server-role guide, release identifiers, installed/runtime state, validation totals, singleton/reopen behavior, release and install procedures, decisions, known constraints, and deferred work with the published `v0.8.6` state.

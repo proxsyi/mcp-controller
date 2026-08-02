@@ -28,4 +28,11 @@ final class StatusBarPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.symbolName, "bolt.horizontal.circle")
         XCTAssertEqual(presentation.tooltip, "MCP Controller — no servers running")
     }
+    func testNativePopoverWindowCanJoinFullScreenSpaces() {
+        XCTAssertEqual(StatusPopoverWindowConfiguration.level, .popUpMenu)
+        XCTAssertTrue(StatusPopoverWindowConfiguration.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(StatusPopoverWindowConfiguration.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertTrue(StatusPopoverWindowConfiguration.collectionBehavior.contains(.transient))
+    }
+
 }
