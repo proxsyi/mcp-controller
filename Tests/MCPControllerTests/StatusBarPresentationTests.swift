@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import MCPController
 
 final class StatusBarPresentationTests: XCTestCase {
@@ -27,5 +28,17 @@ final class StatusBarPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.title, "")
         XCTAssertEqual(presentation.symbolName, "bolt.horizontal.circle")
         XCTAssertEqual(presentation.tooltip, "MCP Controller — no servers running")
+    }
+
+    func testPopoverWindowPolicyPreservesNativePopoverWhileJoiningFullScreenSpaces() {
+        let behavior = StatusPopoverWindowPolicy.collectionBehavior(
+            from: [.moveToActiveSpace, .transient, .ignoresCycle]
+        )
+        XCTAssertFalse(behavior.contains(.moveToActiveSpace))
+        XCTAssertTrue(behavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(behavior.contains(.fullScreenAuxiliary))
+        XCTAssertTrue(behavior.contains(.transient))
+        XCTAssertTrue(behavior.contains(.ignoresCycle))
+        XCTAssertEqual(StatusPopoverWindowPolicy.level, .popUpMenu)
     }
 }

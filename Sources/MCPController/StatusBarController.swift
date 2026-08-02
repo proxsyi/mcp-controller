@@ -28,6 +28,20 @@ struct StatusBarPresentation: Equatable {
     }
 }
 
+struct StatusPopoverWindowPolicy {
+    static let level = NSWindow.Level.popUpMenu
+
+    static func collectionBehavior(
+        from existing: NSWindow.CollectionBehavior
+    ) -> NSWindow.CollectionBehavior {
+        var behavior = existing
+        behavior.remove(.moveToActiveSpace)
+        behavior.insert(.canJoinAllSpaces)
+        behavior.insert(.fullScreenAuxiliary)
+        return behavior
+    }
+}
+
 @MainActor
 final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
@@ -84,7 +98,20 @@ final class StatusBarController: NSObject, ObservableObject {
             popover.performClose(sender)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            configurePopoverWindowForFullScreen()
+            DispatchQueue.main.async { [weak self] in
+                self?.configurePopoverWindowForFullScreen()
+            }
         }
+    }
+
+    private func configurePopoverWindowForFullScreen() {
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.collectionBehavior = StatusPopoverWindowPolicy.collectionBehavior(
+            from: window.collectionBehavior
+        )
+        window.level = StatusPopoverWindowPolicy.level
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 }
