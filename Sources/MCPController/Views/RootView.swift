@@ -37,6 +37,7 @@ struct RootView: View {
         }
         .navigationTitle("MCP Controller")
         .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
+        .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
         .overlay {
             if model.profiles.isEmpty {
                 emptyState(
@@ -71,6 +72,7 @@ struct RootView: View {
                 }
             }.animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
+        .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
