@@ -108,6 +108,10 @@ def normalized_mount_path(profile: dict) -> str:
 def endpoint_path(profile: dict) -> str:
     args = [str(value) for value in profile.get("arguments", [])]
     for index, argument in enumerate(args):
+        if argument in ("--streamEndpoint", "--stream-endpoint") and index + 1 < len(args):
+            return normalized_mount_path({"mountPath": args[index + 1]})
+        if argument.startswith(("--streamEndpoint=", "--stream-endpoint=")):
+            return normalized_mount_path({"mountPath": argument.split("=", 1)[1]})
         if argument == "--streamableHttpPath" and index + 1 < len(args):
             return normalized_mount_path({"mountPath": args[index + 1]})
         if argument.startswith("--streamableHttpPath="):
