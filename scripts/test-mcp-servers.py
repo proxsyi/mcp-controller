@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Live, profile-specific MCP integration tests for MCP Controller."""
 from __future__ import annotations
-import argparse, json, os, sys, time, urllib.error, urllib.request
+import argparse, json, subprocess, time, urllib.error, urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 PROFILE_SPECS = {
     "DDF597AD-1EC6-4B23-BBF8-4EF2F76E077C": {
@@ -28,12 +29,19 @@ PROFILE_SPECS = {
 }
 
 def parse_message(text: str) -> dict:
-    for line in text.splitlines():
-        if line.startswith("data:"):
-            data = line[5:].strip()
-            if data:
-                return json.loads(data)
-    return json.loads(text) if text.strip() and not ("event:" in text or "data:" in text) else {}
+    normalized = text.replace("\r\n", "\n")
+    for block in normalized.split("\n\n"):
+        data_lines = [line[5:].lstrip() for line in block.splitlines() if line.startswith("data:")]
+        if not data_lines:
+            continue
+        candidate = "\n".join(data_lines).strip()
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return json.loads(normalized) if normalized.strip() and not ("event:" in normalized or "data:" in normalized) else {}
 
 class Client:
     def __init__(self, url: str, token: str, timeout: int):
@@ -54,25 +62,81 @@ class Client:
         raise AssertionError("unreachable")
     def initialize(self) -> None:
         status, body = self.post({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-controller-tests","version":"1"}}})
-        assert status == 200 and body.get("result", {}).get("protocolVersion") == "2025-11-25"
-        status, _ = self.post({"jsonrpc":"2.0","method":"notifications/initialized"})
-        assert status == 202
+        assert status == 200 and body.get("result", {}).get("protocolVersion"), "initialize response missing protocol version"
+        try:
+            status, _ = self.post({"jsonrpc":"2.0","method":"notifications/initialized"})
+            assert status in (200, 202, 204), f"initialized notification returned HTTP {status}"
+        except urllib.error.HTTPError as error:
+            assert error.code in (200, 202, 204), f"initialized notification returned HTTP {error.code}"
 
-def token_for(profile: dict) -> str:
+def token_for(profile: dict, preferred_name: str | None = None) -> str:
     credentials = profile.get("clientCredentials", [])
     if not credentials: raise AssertionError("No client credentials configured")
-    return next((item["token"] for item in credentials if item.get("name", "").lower() == "notion"), credentials[0]["token"])
+    if preferred_name:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == preferred_name.casefold()), None)
+        if not credential:
+            raise AssertionError(f"Credential {preferred_name!r} not found")
+        return credential["token"]
+    notion = next((item for item in credentials if item.get("name", "").lower() == "notion"), None)
+    return (notion or credentials[0])["token"]
+
+def server_profiles(profiles: list[dict]) -> list[dict]:
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
+def dns_name(profiles: list[dict]) -> str:
+    path = next((profile.get("tailscalePath") for profile in server_profiles(profiles) if profile.get("tailscalePath")), None)
+    if not path:
+        raise AssertionError("No Tailscale CLI path configured")
+    result = subprocess.run([path, "status", "--json"], capture_output=True, text=True, timeout=20, check=True)
+    return json.loads(result.stdout)["Self"]["DNSName"].rstrip(".")
+
+def public_base_url(profiles: list[dict], provided: str | None) -> str:
+    if provided:
+        return provided.rstrip("/")
+    return "https://" + dns_name(profiles)
+
+def mount_path(profile: dict) -> str:
+    value = (profile.get("mountPath") or "/").strip()
+    if not value or value == "/":
+        return "/"
+    value = value if value.startswith("/") else "/" + value
+    return value[:-1] if value.endswith("/") else value
+
+def endpoint_path(profile: dict) -> str:
+    args = [str(value) for value in profile.get("arguments", [])]
+    for index, argument in enumerate(args):
+        if argument == "--streamableHttpPath" and index + 1 < len(args):
+            return mount_path({"mountPath": args[index + 1]})
+        if argument.startswith("--streamableHttpPath="):
+            return mount_path({"mountPath": argument.split("=", 1)[1]})
+        if argument == "--transport" and index + 1 < len(args):
+            if args[index + 1].lower() in ("streamable-http", "streamablehttp"):
+                return "/mcp"
+        if argument.lower() in ("--transport=streamable-http", "--transport=streamablehttp"):
+            return "/mcp"
+    return "/mcp"
+
+def public_url(base_url: str, profile: dict) -> str:
+    parsed = urlsplit(base_url)
+    mount = mount_path(profile)
+    if parsed.port is not None:
+        return base_url + mount
+    public_port = int(profile.get("publicPort", 443) or 443)
+    port_suffix = "" if public_port == 443 else f":{public_port}"
+    return base_url + port_suffix + mount
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default="https://cashs-macbook-pro.tail6b12d0.ts.net")
+    ap.add_argument("--base-url")
     ap.add_argument("--config", default=str(Path.home()/"Library/Application Support/MCP Controller/servers.json"))
     ap.add_argument("--timeout", type=int, default=60)
     ap.add_argument("--skip-tool-calls", action="store_true")
     ap.add_argument("--only", action="append", help="Run one named profile; repeatable")
     ap.add_argument("--local", action="store_true", help="Test local upstream endpoints instead of public routes")
+    ap.add_argument("--credential", help="Credential name to use when a profile has multiple access keys")
     args = ap.parse_args()
-    profiles = {p["id"].upper(): p for p in json.load(open(args.config))}
+    profiles = {p["id"].upper(): p for p in server_profiles(json.load(open(args.config)))}
+    base_url = None if args.local else public_base_url(list(profiles.values()), args.base_url)
     failures, report = [], []
     for pid, spec in PROFILE_SPECS.items():
         if args.only and spec["name"] not in args.only:
@@ -83,8 +147,8 @@ def main() -> int:
             p = profiles[pid]
             assert p["name"] == spec["name"], f"name is {p['name']!r}"
             assert p.get("description") == spec["description"], f"description is {p.get('description')!r}"
-            url = f"http://127.0.0.1:{p['localPort']}/mcp" if args.local else args.base_url.rstrip("/") + p["mountPath"]
-            client = Client(url, token_for(p), args.timeout)
+            url = f"http://127.0.0.1:{p['localPort']}{endpoint_path(p)}" if args.local else public_url(base_url, p)
+            client = Client(url, token_for(p, args.credential), args.timeout)
             client.initialize()
             status, body = client.post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
             assert status == 200

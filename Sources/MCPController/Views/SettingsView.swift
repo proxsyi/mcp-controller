@@ -13,6 +13,23 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .updates: return "arrow.triangle.2.circlepath"
         }
     }
+
+    var storageValue: String {
+        switch self {
+        case .app: return "app"
+        case .remoteAccess: return "remoteAccess"
+        case .updates: return "updates"
+        }
+    }
+
+    init?(storageValue: String) {
+        switch storageValue {
+        case "app": self = .app
+        case "remoteAccess": self = .remoteAccess
+        case "updates": self = .updates
+        default: return nil
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -50,6 +67,19 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 760, height: 560)
+        .onAppear {
+            selection = SettingsSection(storageValue: settings.preferredSettingsSection) ?? .app
+        }
+        .onChange(of: settings.preferredSettingsSection) { _, value in
+            if let section = SettingsSection(storageValue: value), section != selection {
+                selection = section
+            }
+        }
+        .onChange(of: selection) { _, value in
+            if settings.preferredSettingsSection != value.storageValue {
+                settings.preferredSettingsSection = value.storageValue
+            }
+        }
     }
 
     private var appSettings: some View {
@@ -57,10 +87,10 @@ struct SettingsView: View {
             VStack(spacing: 18) {
                 settingsCard(title: "Overview", symbol: "server.rack") {
                     HStack(spacing: 18) {
-                        metric("Configured", model.profiles.count, .secondary)
+                        metric("Configured", model.serverProfiles.count, .secondary)
                         metric("Running", model.runningCount, .green)
                         metric("Failed", model.failedCount, .red)
-                        metric("Remote", model.profiles.filter(\.tailscaleRouteEnabled).count, .blue)
+                        metric("Remote", model.serverProfiles.filter(\.tailscaleRouteEnabled).count, .blue)
                     }
                 }
 

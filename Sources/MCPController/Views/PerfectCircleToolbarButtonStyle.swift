@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct PerfectCircleToolbarButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .labelStyle(.iconOnly)
@@ -17,7 +19,7 @@ struct PerfectCircleToolbarButtonStyle: ButtonStyle {
             }
             .clipShape(Circle())
             .contentShape(Circle())
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }

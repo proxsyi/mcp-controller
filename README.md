@@ -2,7 +2,7 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.3` (build 30).
+Current release: `v0.8.4` (build 31).
 
 ## What it does
 
@@ -78,7 +78,7 @@ npx -y mcp-proxy@6.5.4 --host 127.0.0.1 --port {port} --server stream --streamEn
 
 ## Terminal control
 
-The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. Between `new`, `show --secrets`, `save`, and the lifecycle/access commands below, every app action has a terminal equivalent.
+The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. Between `new`, `show --secrets`, `save`, and the lifecycle/access commands below, every app action has a terminal equivalent. Routine terminal commands wake the controller in the background and proceed as soon as the local control queue is available.
 
 ```bash
 # Inventory and details
@@ -151,7 +151,7 @@ When exclusive access is enabled, MCP Controller listens on a profile-specific g
 - Competing keys receive a retryable JSON-RPC connection-in-use response and appear in the approval queue.
 - Approval transfers the lease; the waiting client retries its request.
 - Gateway authorization is consumed locally and never forwarded upstream.
-- Origin headers are validated against the profile's allowlist.
+- Origin headers are validated against the profile's allowlist only when you explicitly configure origin restrictions; leaving Allowed origins empty keeps origin filtering off.
 - Stopping a profile releases its lease and gateway.
 
 Remote-client compatibility can normalize MCP request headers, bridge negotiated protocol versions, acknowledge notifications, and provide empty optional discovery responses when required by strict hosted clients.

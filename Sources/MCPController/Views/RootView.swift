@@ -3,6 +3,8 @@ import AppKit
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingAddServer = false
     @State private var searchText = ""
@@ -20,32 +22,42 @@ struct RootView: View {
         }
     }
 
+    private var sidebar: some View {
+        List(selection: $model.selectedID) {
+            Section {
+                ForEach(filteredProfiles) { profile in
+                    sidebarRow(for: profile)
+                }
+                .onMove { indices, newOffset in
+                    let movedIDs = indices.map { filteredProfiles[$0].id }
+                    model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
+                }
+                .moveDisabled(!searchText.isEmpty)
+            } header: { sidebarSummary }
+        }
+        .navigationTitle("MCP Controller")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
+        .navigationSplitViewColumnWidth(min: 228, ideal: 260, max: 340)
+        .overlay {
+            if model.profiles.isEmpty {
+                emptyState(
+                    title: "No items yet",
+                    description: "Add an MCP server, heading, or spacer to start organizing this controller."
+                )
+            } else if model.serverProfiles.isEmpty {
+                emptyState(
+                    title: "No servers yet",
+                    description: "You only have organization items right now. Add an MCP server when you’re ready to run one."
+                )
+            } else if filteredProfiles.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
-            List(selection: $model.selectedID) {
-                Section {
-                    ForEach(filteredProfiles) { profile in
-                        ServerRow(profile: profile).tag(profile.id).contextMenu { contextMenu(for: profile) }
-                    }
-                    .onMove { indices, newOffset in
-                        let movedIDs = indices.map { filteredProfiles[$0].id }
-                        model.moveProfiles(withIDs: movedIDs, toFilteredIndex: newOffset, filteredIDs: filteredProfiles.map(\.id))
-                    }
-                } header: { sidebarSummary }
-            }
-            .navigationTitle("MCP Servers")
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Find a server")
-            .overlay {
-                if model.serverProfiles.isEmpty {
-                    ContentUnavailableView {
-                        Label("No servers yet", systemImage: "server.rack")
-                    } description: {
-                        Text("Add an MCP server, then start it when you need it.")
-                    } actions: {
-                        Button("Add Server", systemImage: "plus") { showingAddServer = true }.buttonStyle(.borderedProminent)
-                    }
-                } else if filteredProfiles.isEmpty { ContentUnavailableView.search(text: searchText) }
-            }
+            sidebar
         } detail: {
             ZStack {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
@@ -56,7 +68,7 @@ struct RootView: View {
                         OrganizationItemDetailView(profile: profile)
                     }
                 } else {
-                    ContentUnavailableView("Select a server", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure or control it."))
+                    ContentUnavailableView("Select an item", systemImage: "slider.horizontal.3", description: Text("Choose a server to configure it, or choose a heading or spacer to review its placement."))
                 }
             }.animation(AppMotion.standard(reduceMotion: reduceMotion), value: model.selectedID)
         }
@@ -73,7 +85,10 @@ struct RootView: View {
 
                 TailscaleToolbarButton()
 
-                SettingsLink {
+                Button {
+                    settings.preferredSettingsSection = "app"
+                    openSettings()
+                } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 13, weight: .semibold))
                 }
@@ -81,10 +96,28 @@ struct RootView: View {
                 .help("Settings (⌘,)")
             }
         }
-        .sheet(isPresented: $showingAddServer) { AddServerView().environmentObject(model) }
+        .sheet(isPresented: $showingAddServer) {
+            AddServerView()
+                .environmentObject(model)
+                .environmentObject(settings)
+        }
         .alert("MCP Controller", isPresented: Binding(get: { model.presentedError != nil }, set: { if !$0 { model.presentedError = nil } })) {
             Button("OK") { model.presentedError = nil }
         } message: { Text(model.presentedError ?? "") }
+    }
+
+    private func sidebarRow(for profile: ServerProfile) -> some View {
+        ServerRow(profile: profile)
+            .tag(profile.id)
+            .contextMenu { contextMenu(for: profile) }
+    }
+
+    private func emptyState(title: String, description: String) -> some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(title, systemImage: "server.rack", description: Text(description))
+            Button("Add Server", systemImage: "plus") { showingAddServer = true }
+                .buttonStyle(.borderedProminent)
+        }
     }
 
     @ViewBuilder private func contextMenu(for profile: ServerProfile) -> some View {
@@ -107,12 +140,27 @@ struct RootView: View {
             Text("\(model.serverProfiles.count) servers")
             Spacer(minLength: 12)
             if model.failedCount > 0 {
-                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).fixedSize()
+                Label("\(model.failedCount)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .fixedSize()
             }
             if model.runningCount > 0 {
-                Label("\(model.runningCount)", systemImage: "bolt.fill").foregroundStyle(.green).contentTransition(.numericText()).fixedSize()
+                Label("\(model.runningCount)", systemImage: "bolt.fill")
+                    .foregroundStyle(.green)
+                    .contentTransition(.numericText())
+                    .fixedSize()
+            } else if model.activeCount > 0 {
+                Label("\(model.activeCount)", systemImage: "clock.fill")
+                    .foregroundStyle(.orange)
+                    .contentTransition(.numericText())
+                    .fixedSize()
             }
-        }.textCase(nil).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.vertical, 4).padding(.trailing, 12)
+        }
+        .textCase(nil)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .padding(.trailing, 12)
     }
 
     private func copyLogs(for profile: ServerProfile, resetFailure: Bool) {
@@ -204,7 +252,7 @@ private struct OrganizationItemDetailView: View {
         ContentUnavailableView(
             profile.isHeading ? profile.name : "Spacer",
             systemImage: profile.isHeading ? "textformat.size" : "rectangle.split.1x2",
-            description: Text(profile.isHeading ? "This heading organizes the sidebar. Drag it to reposition it or rename it from Terminal." : "This spacer separates groups in the sidebar. Drag it to reposition it or remove it from Terminal.")
+            description: Text(profile.isHeading ? "This heading organizes the sidebar. Drag it to reposition it or rename it from Terminal." : "This spacer separates groups in the sidebar. Drag it to reposition it or remove it from Terminal." )
         )
     }
 }

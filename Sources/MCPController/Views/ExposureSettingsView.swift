@@ -5,8 +5,12 @@ struct ExposureSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var profile: ServerProfile
     let phase: RuntimePhase
+    let persistLiveChange: (ServerProfile) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dnsName = ""
+    @State private var dnsRefreshToken = UUID()
+    @State private var mountPathText = ""
+    @FocusState private var routePathIsFocused: Bool
 
     var body: some View {
         VStack(spacing: 16) {
@@ -15,10 +19,23 @@ struct ExposureSettingsView: View {
             GatewayAccessView(profile: $profile, isRunning: phase.isActive)
         }
         .animation(AppMotion.standard(reduceMotion: reduceMotion), value: profile.tailscaleRouteEnabled)
-        .onAppear { refreshDNS() }
+        .onAppear {
+            mountPathText = profile.mountPath
+            refreshDNS()
+        }
         .onChange(of: profile.tailscalePath) { _, _ in refreshDNS() }
         .onChange(of: profile.tailscaleRouteEnabled) { _, _ in refreshDNS() }
         .onChange(of: profile.exposureMode) { _, _ in refreshDNS() }
+        .onChange(of: profile.mountPath) { _, value in
+            if !routePathIsFocused { mountPathText = value }
+        }
+        .onChange(of: routePathIsFocused) { _, focused in
+            if !focused { Task { await commitMountPath() } }
+        }
+    }
+
+    private var isLiveFunnelRouteLocked: Bool {
+        model.tailscaleFunnelRunning && profile.exposureMode == .funnel
     }
 
     private var remoteAccessCard: some View {
@@ -41,29 +58,31 @@ struct ExposureSettingsView: View {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                         GridRow {
                             Text("Audience").foregroundStyle(.secondary)
-                            Picker("Audience", selection: $profile.exposureMode) {
+                            Picker("Audience", selection: exposureModeBinding) {
                                 Text("Tailnet only").tag(ExposureMode.tailnet)
                                 Text("Public Funnel").tag(ExposureMode.funnel)
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
-                            .disabled(model.tailscaleFunnelRunning)
+                            .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("HTTPS port").foregroundStyle(.secondary)
-                            Picker("HTTPS port", selection: $profile.publicPort) {
+                            Picker("HTTPS port", selection: publicPortBinding) {
                                 ForEach([443, 8443, 10000], id: \.self) { Text(String($0)).tag($0) }
                             }
                             .labelsHidden()
                             .frame(width: 120)
-                            .disabled(model.tailscaleFunnelRunning)
+                            .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("Route path").foregroundStyle(.secondary)
-                            TextField("/mcp/server", text: $profile.mountPath)
+                            TextField("/mcp/server", text: $mountPathText)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.subheadline, design: .monospaced))
-                                .disabled(model.tailscaleFunnelRunning)
+                                .focused($routePathIsFocused)
+                                .onSubmit { Task { await commitMountPath() } }
+                                .disabled(isLiveFunnelRouteLocked)
                         }
                         GridRow {
                             Text("Remote URL").foregroundStyle(.secondary)
@@ -85,9 +104,9 @@ struct ExposureSettingsView: View {
                         }
                     }
 
-                    Text(model.tailscaleFunnelRunning
-                         ? "Stop the shared Funnel in Settings before editing a live public route."
-                         : "These route settings will be used the next time the shared Funnel starts.")
+                    Text(isLiveFunnelRouteLocked
+                         ? "Stop the shared Funnel in Settings before editing this live public route."
+                         : "Route changes are applied when you press Return or leave the route path field.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -112,7 +131,7 @@ struct ExposureSettingsView: View {
                     Spacer()
                     Toggle("Remote client compatibility", isOn: compatibilityBinding)
                         .labelsHidden()
-                                        }
+                }
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     GridRow { Text("Status").foregroundStyle(.secondary); statusLine }
@@ -140,8 +159,8 @@ struct ExposureSettingsView: View {
     }
 
     private var publicAddress: String? {
-        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled, !dnsName.isEmpty else { return nil }
-        return TailscaleRouteService.address(for: profile, dnsName: dnsName)
+        guard profile.tailscaleRouteEnabled, profile.exposureMode != .disabled else { return nil }
+        return model.remoteURL(for: profile)
     }
 
     private var audienceLabel: String {
@@ -182,7 +201,29 @@ struct ExposureSettingsView: View {
     }
 
     private var remoteAccessBinding: Binding<Bool> {
-        Binding(get: { profile.tailscaleRouteEnabled }, set: { applyRemoteAccess(enabled: $0) })
+        Binding(get: { profile.tailscaleRouteEnabled }, set: { enabled in Task { await applyRemoteAccess(enabled: enabled) } })
+    }
+
+    private var exposureModeBinding: Binding<ExposureMode> {
+        Binding(
+            get: { profile.exposureMode },
+            set: { value in
+                var updated = profile
+                updated.exposureMode = value
+                Task { _ = await applyRouteConfigurationChange(updated) }
+            }
+        )
+    }
+
+    private var publicPortBinding: Binding<Int> {
+        Binding(
+            get: { profile.publicPort },
+            set: { value in
+                var updated = profile
+                updated.publicPort = value
+                Task { _ = await applyRouteConfigurationChange(updated) }
+            }
+        )
     }
 
     private var compatibilityBinding: Binding<Bool> {
@@ -197,10 +238,10 @@ struct ExposureSettingsView: View {
                     if updated.gatewayPort == updated.localPort {
                         updated.gatewayPort = model.nextAvailableGatewayPort(startingAt: updated.gatewayPort + 1)
                     }
-                    if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+                    if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
                     if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
                     profile = updated
-                    if !updated.tailscaleRouteEnabled { applyRemoteAccess(enabled: true) }
+                    if !updated.tailscaleRouteEnabled { Task { await applyRemoteAccess(enabled: true) } }
                 } else {
                     profile = updated
                 }
@@ -209,38 +250,64 @@ struct ExposureSettingsView: View {
         )
     }
 
-    private func applyRemoteAccess(enabled: Bool) {
+    private func applyRemoteAccess(enabled: Bool) async {
         if enabled {
             var updated = profile
             updated.tailscaleRouteEnabled = true
-            if updated.exposureMode == .disabled { updated.exposureMode = .funnel }
+            if updated.exposureMode == .disabled { updated.exposureMode = .tailnet }
             if updated.normalizedMountPath == "/" { updated.mountPath = model.uniqueMountPath(for: updated.name) }
-            updated.tailscalePath = TailscaleRouteService.defaultCLIPath
-            if phase.isActive {
+            if updated.tailscalePath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: updated.tailscalePath) {
+                updated.tailscalePath = TailscaleRouteService.defaultCLIPath
+            }
+            if await model.startTailscaleRoute(updated) {
                 profile = updated
-            } else if model.tailscaleFunnelRunning {
-                if model.startTailscaleRoute(updated) { profile = updated }
-            } else {
-                model.update(updated)
-                profile = updated
+                mountPathText = updated.mountPath
+                persistLiveChange(updated)
             }
         } else {
             let current = profile
             var updated = profile
             updated.tailscaleRouteEnabled = false
-            if phase.isActive {
+            if await model.stopTailscaleRoute(current) {
                 profile = updated
-            } else if model.tailscaleFunnelRunning {
-                if model.stopTailscaleRoute(current) { profile = updated }
-            } else {
-                model.update(updated)
-                profile = updated
+                persistLiveChange(updated)
             }
         }
         refreshDNS()
     }
 
+    @discardableResult
+    private func applyRouteConfigurationChange(_ updated: ServerProfile) async -> Bool {
+        if updated.tailscaleRouteEnabled {
+            guard await model.startTailscaleRoute(updated) else { return false }
+            profile = updated
+            persistLiveChange(updated)
+        } else {
+            model.update(updated)
+            profile = updated
+            persistLiveChange(updated)
+        }
+        refreshDNS()
+        return true
+    }
+
+    private func commitMountPath() async {
+        guard mountPathText != profile.mountPath else { return }
+        var updated = profile
+        updated.mountPath = mountPathText
+        if !(await applyRouteConfigurationChange(updated)) {
+            mountPathText = profile.mountPath
+        }
+    }
+
     private func refreshDNS() {
-        dnsName = TailscaleRouteService.dnsName(cliPath: profile.tailscalePath) ?? ""
+        let token = UUID()
+        dnsRefreshToken = token
+        let cliPath = profile.tailscalePath
+        Task { @MainActor in
+            let value = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath) ?? ""
+            guard dnsRefreshToken == token else { return }
+            dnsName = value
+        }
     }
 }

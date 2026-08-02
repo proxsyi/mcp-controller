@@ -27,6 +27,7 @@ struct ServerDetailView: View {
     @State private var pulse = false
     @State private var showingRestartConfirmation = false
     @State private var isSynchronizingDraft = false
+    @State private var restartRequiredChangesPending = false
 
     private let settingColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -158,7 +159,7 @@ struct ServerDetailView: View {
         case .setup:
             setupContent
         case .access:
-            ExposureSettingsView(profile: $draft, phase: phase)
+            ExposureSettingsView(profile: $draft, phase: phase, persistLiveChange: syncLiveProfile)
         case .activity:
             logsContent
         }
@@ -248,10 +249,15 @@ struct ServerDetailView: View {
                         }
                     }
 
-                    settingTile("Remote path", detail: draft.tailscaleRouteEnabled ? "Used when remote access is on" : "Used the next time remote access is enabled", symbol: "point.3.connected.trianglepath.dotted") {
+                    settingTile(
+                        "Remote path",
+                        detail: draft.tailscaleRouteEnabled ? "Change the live route from the Access tab while remote access is on" : "Used the next time remote access is enabled",
+                        symbol: "point.3.connected.trianglepath.dotted"
+                    ) {
                         TextField("/mcp/server", text: $draft.mountPath)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.subheadline, design: .monospaced))
+                            .disabled(draft.tailscaleRouteEnabled)
                     }
 
                     settingTile("Start at launch", detail: draft.autoStart ? "Starts when MCP Controller opens" : "Stays stopped until you start it", symbol: draft.autoStart ? "play.circle.fill" : "pause.circle") {
@@ -325,7 +331,7 @@ struct ServerDetailView: View {
 
     private func handlePhaseChange(_ phase: RuntimePhase) {
         updatePulse(for: phase)
-        if !phase.isActive, draft != savedProfile {
+        if !phase.isActive, !restartRequiredChangesPending, draft != savedProfile {
             model.update(draft)
             savedProfile = draft
         }
@@ -344,10 +350,15 @@ struct ServerDetailView: View {
             guard let split = line.firstIndex(of: "=") else { return }
             values[String(line[..<split])] = String(line[line.index(after: split)...])
         }
+        if phase.isActive, draft != savedProfile {
+            restartRequiredChangesPending = true
+            return
+        }
         guard draft != savedProfile else { return }
         if !phase.isActive {
             model.update(draft)
             savedProfile = draft
+            restartRequiredChangesPending = false
         }
     }
 
@@ -355,6 +366,7 @@ struct ServerDetailView: View {
         let original = savedProfile
         let updated = draft
         showingRestartConfirmation = false
+        restartRequiredChangesPending = false
         model.update(updated)
         savedProfile = updated
         model.stop(original) { [weak model] in model?.start(updated) }
@@ -362,10 +374,22 @@ struct ServerDetailView: View {
 
     private func revertDraft() {
         showingRestartConfirmation = false
+        restartRequiredChangesPending = false
         isSynchronizingDraft = true
         draft = savedProfile
         argumentsText = savedProfile.arguments.joined(separator: "\n")
         environmentText = savedProfile.environment.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        Task { @MainActor in
+            await Task.yield()
+            isSynchronizingDraft = false
+        }
+    }
+
+    private func syncLiveProfile(_ profile: ServerProfile) {
+        restartRequiredChangesPending = false
+        isSynchronizingDraft = true
+        draft = profile
+        savedProfile = profile
         Task { @MainActor in
             await Task.yield()
             isSynchronizingDraft = false
@@ -403,7 +427,7 @@ struct ServerDetailView: View {
             get: { String(draft[keyPath: keyPath]) },
             set: { text in
                 let digits = text.filter(\.isNumber)
-                if let value = Int(digits), (1...65535).contains(value) {
+                if let value = Int(digits), (1024...65535).contains(value) {
                     draft[keyPath: keyPath] = value
                 }
             }

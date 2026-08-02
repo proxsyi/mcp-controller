@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-import contextlib, hashlib, json, os, plistlib, re, shutil, subprocess
+import contextlib, datetime, hashlib, json, os, plistlib, re, shutil, subprocess
 from pathlib import Path
 
 home = Path.home()
-repo = home / "Projects/Clients/Versyi/MCP-Controller"
-config = home / "Library/Application Support/MCP Controller/servers.json"
-app = Path("/Applications/MCP Controller.app")
-report_path = home / "Desktop/mcp-health-report.txt"
+timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+repo = Path(os.environ.get("MCP_CONTROLLER_REPO", home / "Projects/Clients/Versyi/MCP-Controller"))
+config = Path(os.environ.get("MCP_CONTROLLER_CONFIG", home / "Library/Application Support/MCP Controller/servers.json"))
+app = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
+report_path = Path(os.environ.get("MCP_CONTROLLER_REPORT", home / f"Desktop/mcp-health-report-{timestamp}.txt"))
+preferred_credential = os.environ.get("MCP_CLIENT", "").strip() or os.environ.get("MCP_CREDENTIAL", "").strip()
 results = []
-payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
+payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}, separators=(",", ":"))
 
 def run(cmd, timeout=20):
     try: return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -37,6 +39,18 @@ def endpoint(profile):
     return "/mcp", "fallback"
 
 def join(base, suffix): return base if suffix == "/" else base.rstrip("/") + suffix
+
+def selected_token(profile):
+    credentials = profile.get("clientCredentials") or []
+    if not credentials:
+        return ""
+    if preferred_credential:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == preferred_credential.casefold()), None)
+        if credential is None:
+            raise SystemExit(f"Credential {preferred_credential!r} was not found for {profile.get('name', 'Unnamed')}")
+        return credential.get("token", "")
+    notion = next((item for item in credentials if item.get("name", "").casefold() == "notion"), None)
+    return (notion or credentials[0]).get("token", "")
 
 def probe(label, url, token="", timeout=10):
     cmd = ["curl","-sS","-i","--no-buffer","--max-time",str(timeout),"-H","Accept: application/json, text/event-stream","-H","Content-Type: application/json","-d",payload]
@@ -67,6 +81,9 @@ def sha(path):
         for block in iter(lambda:f.read(1048576),b""): h.update(block)
     return h.hexdigest()
 
+def server_profiles(profiles):
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
 def main():
     section("BUILD AND PROCESS STATE")
     print("Repo HEAD:",run(["git","-C",str(repo),"rev-parse","HEAD"]).stdout.strip())
@@ -77,9 +94,9 @@ def main():
         with open(app/"Contents/Info.plist","rb") as f: info=plistlib.load(f)
         print("Installed version:",info.get("CFBundleShortVersionString"),"build",info.get("CFBundleVersion"),info.get("CFBundleIdentifier"))
     if installed.exists() and built.exists(): print("Installed/build binary match:","PASS" if sha(installed)==sha(built) else "FAIL")
-    print(run(["pgrep","-fl","MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript|automation"]).stdout.strip() or "No matching processes")
+    print(run(["pgrep","-fl","MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript"]).stdout.strip() or "No matching processes")
 
-    with open(config) as f: profiles=json.load(f)
+    with open(config) as f: profiles=server_profiles(json.load(f))
     section("CONFIGURATION AND PORTS")
     for p in profiles:
         ep,source=endpoint(p); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); creds=p.get("clientCredentials") or []
@@ -87,7 +104,7 @@ def main():
         print("  upstream",local,"LISTEN" if listener(local) else "CLOSED","gateway",gateway,"LISTEN" if listener(gateway) else "CLOSED")
         print("  endpoint",ep,"("+source+")","mount",norm(p.get("mountPath")))
         print("  autoStart",p.get("autoStart"),"exclusive",p.get("exclusiveGatewayEnabled"),"compatibility",p.get("remoteClientCompatibilityEnabled"))
-        print("  route",p.get("tailscaleRouteEnabled"),p.get("exposureMode"),"public port",p.get("publicPort"),"credentials",len(creds))
+        print("  route",p.get("tailscaleRouteEnabled"),p.get("exposureMode"),"public port",p.get("publicPort"),"credentials",len(creds),[credential.get("name") for credential in creds])
 
     section("TAILSCALE")
     tailscale=next((p.get("tailscalePath") for p in profiles if p.get("tailscalePath") and os.path.exists(p.get("tailscalePath"))),None) or shutil.which("tailscale")
@@ -109,7 +126,7 @@ def main():
 
     section("END-TO-END INITIALIZE")
     for p in profiles:
-        name=p.get("name","Unnamed"); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); ep,_=endpoint(p); mount=norm(p.get("mountPath")); token=((p.get("clientCredentials") or [{}])[0].get("token") or "")
+        name=p.get("name","Unnamed"); local=int(p.get("localPort",0)); gateway=int(p.get("gatewayPort",0)); ep,_=endpoint(p); mount=norm(p.get("mountPath")); token=selected_token(p)
         print("\n--- "+name+" ---")
         if not listener(local): print("[SKIP] upstream is stopped"); continue
         probe("direct upstream", "http://127.0.0.1:"+str(local)+ep)
