@@ -37,6 +37,7 @@ struct RootView: View {
         }
         .navigationTitle("MCP Controller")
         .searchable(text: $searchText, placement: .sidebar, prompt: "Find an item")
+        .navigationSplitViewColumnWidth(min: 228, ideal: 260, max: 340)
         .overlay {
             if model.profiles.isEmpty {
                 emptyState(

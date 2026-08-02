@@ -41,9 +41,9 @@ struct MCPControllerApp: App {
                 .environmentObject(model)
                 .environmentObject(settings)
                 .environmentObject(updates)
-                .frame(minWidth: 980, minHeight: 640)
+                .frame(minWidth: 1040, minHeight: 680)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1240, height: 800)
         .commands { SettingsToggleCommands(coordinator: settingsWindow) }
 
         Settings {
