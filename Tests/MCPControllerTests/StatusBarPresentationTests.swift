@@ -65,26 +65,4 @@ final class StatusBarPresentationTests: XCTestCase {
         ))
     }
 
-    func testMouseDownThatDismissesAVisiblePanelCannotReopenIt() {
-        XCTAssertFalse(StatusPanelTogglePolicy.shouldOpen(
-            panelWasVisibleAtMouseDown: true,
-            panelIsVisibleNow: false
-        ))
-        XCTAssertFalse(StatusPanelTogglePolicy.shouldOpen(
-            panelWasVisibleAtMouseDown: true,
-            panelIsVisibleNow: true
-        ))
-    }
-
-    func testMouseDownOpensOnlyWhenPanelStartedAndRemainsHidden() {
-        XCTAssertTrue(StatusPanelTogglePolicy.shouldOpen(
-            panelWasVisibleAtMouseDown: false,
-            panelIsVisibleNow: false
-        ))
-        XCTAssertFalse(StatusPanelTogglePolicy.shouldOpen(
-            panelWasVisibleAtMouseDown: false,
-            panelIsVisibleNow: true
-        ))
-    }
-
 }

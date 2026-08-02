@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.8.9 — 2026-08-02
-
-### Fixed
-- Changed the status-item action to mouse-down timing, matching native menu-bar controls.
-- Prevented the outside-click dismissal event and the status-item action from racing: a click sequence that began while the panel was visible can only close it and can never reopen it on mouse-up.
-
 ## 0.8.8 — 2026-08-02
 
 ### Fixed
