@@ -35,4 +35,34 @@ final class StatusBarPresentationTests: XCTestCase {
         XCTAssertTrue(StatusPanelPresentation.collectionBehavior.contains(.transient))
     }
 
+    func testStatusPanelDismissesForOutsideClicksAndEscape() {
+        XCTAssertTrue(StatusPanelDismissalPolicy.shouldDismiss(
+            eventType: .leftMouseDown,
+            keyCode: 0,
+            isInsidePanel: false,
+            isInsideStatusItem: false
+        ))
+        XCTAssertTrue(StatusPanelDismissalPolicy.shouldDismiss(
+            eventType: .keyDown,
+            keyCode: 53,
+            isInsidePanel: true,
+            isInsideStatusItem: false
+        ))
+    }
+
+    func testStatusPanelStaysOpenForPanelAndStatusItemClicks() {
+        XCTAssertFalse(StatusPanelDismissalPolicy.shouldDismiss(
+            eventType: .leftMouseDown,
+            keyCode: 0,
+            isInsidePanel: true,
+            isInsideStatusItem: false
+        ))
+        XCTAssertFalse(StatusPanelDismissalPolicy.shouldDismiss(
+            eventType: .leftMouseDown,
+            keyCode: 0,
+            isInsidePanel: false,
+            isInsideStatusItem: true
+        ))
+    }
+
 }
