@@ -6,6 +6,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var isDuplicateLaunch = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        ApplicationLifetimePolicy.keepControllerAvailable()
         guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
         let currentPID = ProcessInfo.processInfo.processIdentifier
         guard let existing = NSRunningApplication

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Prevented macOS automatic termination from taking the background Controller offline while its MCP services are active.
+
 ## Documentation — 2026-08-02 (v0.8.10)
 
 - Synchronized repository and workspace documentation with the confirmed `v0.8.10` build 37 release, native-popover full-screen implementation, release commit, checksum, installed singleton state, 76-test result, 18-profile runtime state, rollback history, and current handoff.
