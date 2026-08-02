@@ -36,21 +36,49 @@ enum PortInspector {
 
     static func belongsToProfile(_ listener: ListeningProcess, profile: ServerProfile) -> Bool {
         let command = listener.command.lowercased()
-        var markers = [URL(fileURLWithPath: profile.executablePath).lastPathComponent.lowercased()]
+        let quoteCharacters = CharacterSet(charactersIn: "\"'")
+        let tokens = command.split(whereSeparator: \.isWhitespace).map {
+            String($0).trimmingCharacters(in: quoteCharacters)
+        }
+
+        var markers: [String] = []
+        let executablePath = profile.executablePath.lowercased()
+        let executableName = URL(fileURLWithPath: executablePath).lastPathComponent
+        if !isGenericLauncher(executableName) {
+            markers.append(executablePath)
+            markers.append(executableName)
+        }
 
         for argument in profile.arguments {
-            let expanded = argument.replacingOccurrences(of: "{port}", with: String(profile.localPort))
+            let expanded = argument.replacingOccurrences(of: "{port}", with: String(profile.localPort)).lowercased()
             if expanded.hasPrefix("/") {
-                markers.append(expanded.lowercased())
-                markers.append(URL(fileURLWithPath: expanded).lastPathComponent.lowercased())
+                markers.append(expanded)
+                markers.append(URL(fileURLWithPath: expanded).lastPathComponent)
             } else if !expanded.hasPrefix("-"), expanded.count >= 5 {
-                markers.append(expanded.lowercased())
+                markers.append(expanded)
             }
         }
 
         return markers
-            .filter { !$0.isEmpty && $0 != "node" && $0 != "uv" && $0 != "bun" }
-            .contains { command.contains($0) }
+            .filter { !$0.isEmpty }
+            .contains { marker in
+                tokens.contains(marker) ||
+                tokens.contains(where: { token in
+                    if marker.hasPrefix("/") {
+                        return URL(fileURLWithPath: token).standardizedFileURL.path.lowercased() ==
+                            URL(fileURLWithPath: marker).standardizedFileURL.path.lowercased()
+                    }
+                    guard token.hasPrefix("/") else { return false }
+                    return URL(fileURLWithPath: token).lastPathComponent.lowercased() == marker
+                }) ||
+                command.contains("\"\(marker)\"") ||
+                command.contains("'\(marker)'")
+            }
+    }
+
+    private static func isGenericLauncher(_ name: String) -> Bool {
+        let generic = ["node", "uv", "uvx", "bun", "npx", "npm", "deno", "java", "ruby", "php"]
+        return generic.contains(name) || name == "python" || name.hasPrefix("python3")
     }
 
     static func terminate(_ listener: ListeningProcess) throws {

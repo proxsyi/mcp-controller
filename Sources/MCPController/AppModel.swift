@@ -3,6 +3,8 @@ import Darwin
 
 @MainActor
 final class AppModel: ObservableObject {
+    static var shared: AppModel?
+
     @Published var profiles: [ServerProfile] = []
     @Published var selectedID: UUID?
     @Published private(set) var phases: [UUID: RuntimePhase] = [:]
@@ -24,17 +26,22 @@ final class AppModel: ObservableObject {
     private var bulkLifecycleTask: Task<Void, Never>?
     private var stopCompletions: [UUID: [() -> Void]] = [:]
     private var tailscaleDNSRefreshes: Set<String> = []
+    private var persistTask: Task<Void, Never>?
+    private var recoveryAttempts: [UUID: Int] = [:]
+    private var recoveryTasks: [UUID: Task<Void, Never>] = [:]
 
     var onShowSettings: (() -> Void)?
     var onCheckForUpdates: (() -> String)?
     var onInstallUpdate: (() -> String)?
 
     var serverProfiles: [ServerProfile] { profiles.filter(\.isServer) }
-    var runningCount: Int { serverProfiles.filter { phase(for: $0.id).isActive }.count }
+    var runningCount: Int { serverProfiles.filter { phase(for: $0.id) == .running }.count }
+    var activeCount: Int { serverProfiles.filter { phase(for: $0.id).isActive }.count }
     var failedCount: Int { serverProfiles.filter { phase(for: $0.id).isFailed }.count }
     var activeLeaseCount: Int { gatewayLeases.count }
 
     init() {
+        Self.shared = self
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
             Task { @MainActor in
                 if let active { self?.gatewayLeases[profileID] = active }
@@ -43,6 +50,14 @@ final class AppModel: ObservableObject {
             }
         }
         gatewayManager.onLog = { [weak self] profileID, message in Task { @MainActor in self?.appendLog(profileID, message) } }
+        gatewayManager.onFailure = { [weak self] profileID, message in
+            Task { @MainActor in
+                guard let self, let profile = self.profiles.first(where: { $0.id == profileID }), self.phase(for: profileID).isActive else { return }
+                self.phases[profileID] = .failed(message)
+                self.appendLog(profileID, message + "\n")
+                self.scheduleRecovery(for: profile)
+            }
+        }
         do {
             profiles = try store.load()
             selectedID = profiles.first?.id
@@ -50,7 +65,8 @@ final class AppModel: ObservableObject {
             Task { @MainActor [weak self] in await self?.bootstrapRuntime() }
         } catch { presentedError = "Could not load server profiles: \(error.localizedDescription)" }
         terminalControl.start { [weak self] request in
-            await MainActor.run { self?.handleTerminalCommand(request) ?? .error("MCP Controller is unavailable.") }
+            guard let self else { return .error("MCP Controller is unavailable.") }
+            return await self.handleTerminalCommand(request)
         }
     }
 
@@ -154,9 +170,9 @@ final class AppModel: ObservableObject {
     }
 
     func moveItem(withID id: UUID, toIndex index: Int) -> Bool {
-        guard let currentIndex = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        guard profiles.contains(where: { $0.id == id }) else { return false }
         moveProfiles(withIDs: [id], toFilteredIndex: index, filteredIDs: profiles.map(\.id))
-        return currentIndex != index
+        return true
     }
 
     func remoteURL(for profile: ServerProfile) -> String? {
@@ -175,7 +191,11 @@ final class AppModel: ObservableObject {
             let dnsName = await TailscaleRouteService.dnsNameAsync(cliPath: cliPath)
             guard let self else { return }
             self.tailscaleDNSRefreshes.remove(cliPath)
-            if let dnsName, !dnsName.isEmpty { self.tailscaleDNSNames[cliPath] = dnsName }
+            if let dnsName, !dnsName.isEmpty {
+                self.tailscaleDNSNames[cliPath] = dnsName
+            } else {
+                self.tailscaleDNSNames.removeValue(forKey: cliPath)
+            }
         }
     }
 
@@ -220,7 +240,18 @@ final class AppModel: ObservableObject {
             persist()
             return
         }
-        if profile.tailscaleRouteEnabled { _ = stopTailscaleRoute(profile) }
+        if profile.tailscaleRouteEnabled {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.stopTailscaleRoute(profile)
+                self.finishRemoval(of: profile)
+            }
+            return
+        }
+        finishRemoval(of: profile)
+    }
+
+    private func finishRemoval(of profile: ServerProfile) {
         stop(profile) { [weak self] in
             guard let self else { return }
             self.profiles.removeAll { $0.id == profile.id }
@@ -234,8 +265,23 @@ final class AppModel: ObservableObject {
         guard profile.isServer, !phase(for: profile.id).isActive else { return }
         let errors = profile.validationErrors()
         guard errors.isEmpty else { fail(profile, errors.joined(separator: " ")); return }
-        if let conflict = profiles.first(where: { $0.id != profile.id && phase(for: $0.id).isActive && $0.localPort == profile.localPort }) {
-            fail(profile, "\(conflict.name) is already using MCP port \(profile.localPort)."); return
+        if let conflict = serverProfiles.first(where: {
+            $0.id != profile.id &&
+            phase(for: $0.id).isActive && (
+                $0.localPort == profile.localPort ||
+                ($0.exclusiveGatewayEnabled && $0.gatewayPort == profile.localPort)
+            )
+        }) {
+            fail(profile, "\(conflict.name) is already using port \(profile.localPort) for its MCP server or gateway."); return
+        }
+        if profile.exclusiveGatewayEnabled,
+           let conflict = serverProfiles.first(where: {
+               $0.id != profile.id && phase(for: $0.id).isActive && (
+                   $0.localPort == profile.gatewayPort ||
+                   ($0.exclusiveGatewayEnabled && $0.gatewayPort == profile.gatewayPort)
+               )
+           }) {
+            fail(profile, "\(conflict.name) is already using gateway port \(profile.gatewayPort)."); return
         }
         guard FileManager.default.isExecutableFile(atPath: profile.executablePath) else {
             fail(profile, "The executable does not exist or is not executable: \(profile.executablePath)"); return
@@ -277,8 +323,9 @@ final class AppModel: ObservableObject {
                 } else if case .failed = self.phase(for: profile.id) {
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
                 } else {
-                    self.phases[profile.id] = process.terminationStatus == 0 ? .stopped : .failed("Exited with code \(process.terminationStatus)")
+                    self.phases[profile.id] = .failed("Exited with code \(process.terminationStatus)")
                     self.appendLog(profile.id, "Process exited with code \(process.terminationStatus).\n")
+                    self.scheduleRecovery(for: profile)
                 }
                 self.completeStops(for: profile.id)
             }
@@ -334,6 +381,8 @@ final class AppModel: ObservableObject {
             try await Task.detached(priority: .utility) { [gatewayManager] in try gatewayManager.start(profile: profile) }.value
             try await enableExposure(profile)
             guard processes[profile.id]?.isRunning == true, phase(for: profile.id) == .starting else { return }
+            recoveryAttempts[profile.id] = 0
+            recoveryTasks.removeValue(forKey: profile.id)?.cancel()
             phases[profile.id] = .running; appendLog(profile.id, exposureMessage(for: profile))
         } catch {
             gatewayManager.stop(profileID: profile.id)
@@ -343,6 +392,8 @@ final class AppModel: ObservableObject {
     }
 
     func stop(_ profile: ServerProfile, completion: (() -> Void)? = nil) {
+        recoveryTasks.removeValue(forKey: profile.id)?.cancel()
+        recoveryAttempts[profile.id] = 0
         if let completion { stopCompletions[profile.id, default: []].append(completion) }
         guard phase(for: profile.id).isActive || adoptedListeners[profile.id] != nil else {
             phases[profile.id] = .stopped; completeStops(for: profile.id); return
@@ -389,6 +440,20 @@ final class AppModel: ObservableObject {
             phases[profile.id] = .stopped
             appendLog(profile.id, "Adopted PID \(listener.pid) had already exited; continuing shutdown.\n")
             completeStops(for: profile.id)
+        }
+    }
+
+    private func scheduleRecovery(for profile: ServerProfile) {
+        let attempt = recoveryAttempts[profile.id, default: 0]
+        guard let delay = RuntimeRecoveryPolicy.retryDelay(autoStart: profile.autoStart, wasUserStopped: false, attempt: attempt) else { return }
+        recoveryAttempts[profile.id] = attempt + 1
+        recoveryTasks[profile.id]?.cancel()
+        appendLog(profile.id, "Retrying persistent server in \(Int(delay)) second(s) (attempt \(attempt + 1)/\(RuntimeRecoveryPolicy.maximumAttempts)).\n")
+        recoveryTasks[profile.id] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled, self.phase(for: profile.id).isFailed, let current = self.profiles.first(where: { $0.id == profile.id }), current.autoStart else { return }
+            self.phases[profile.id] = .stopped
+            self.start(current)
         }
     }
 
@@ -442,6 +507,7 @@ final class AppModel: ObservableObject {
 
     func stopImmediatelyForApplicationQuit() {
         bulkLifecycleTask?.cancel()
+        persistTask?.cancel()
         flushPersistNow()
         for profile in serverProfiles {
             gatewayManager.stop(profileID: profile.id)
@@ -473,7 +539,10 @@ final class AppModel: ObservableObject {
         guard let arguments = TailscaleCommandBuilder.enableArguments(for: profile) else { return }
         let result = try await CommandRunner.runAsync(executable: profile.tailscalePath, arguments: arguments)
         guard result.exitCode == 0 else { throw ControllerError.commandFailed(result.error.isEmpty ? result.output : result.error) }
-        tailscaleFunnelRunning = true; UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+        if profile.exposureMode == .funnel {
+            tailscaleFunnelRunning = true
+            UserDefaults.standard.set(true, forKey: "tailscale.funnelRunning")
+        }
     }
 
     private func exposureMessage(for profile: ServerProfile) -> String {
@@ -495,7 +564,40 @@ final class AppModel: ObservableObject {
     }
     private func appendLog(_ id: UUID, _ text: String) { logs[id] = String(((logs[id] ?? "") + text).suffix(100_000)) }
     private func persist(immediate: Bool = false) {
-        do { try store.save(profiles) } catch { presentedError = "Could not save server profiles: \(error.localizedDescription)" }
+        persistTask?.cancel()
+        if immediate {
+            writeProfilesNow()
+            return
+        }
+        let snapshot = profiles
+        persistTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            self?.writeProfilesAsync(snapshot)
+            self?.persistTask = nil
+        }
+    }
+
+    private func writeProfilesAsync(_ snapshot: [ServerProfile]) {
+        store.saveAsync(snapshot) { [weak self] error in
+            guard let error else { return }
+            Task { @MainActor [weak self] in
+                self?.presentedError = "Could not save server profiles: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func writeProfilesNow() {
+        persistTask?.cancel()
+        persistTask = nil
+        do {
+            try store.save(profiles)
+        } catch {
+            presentedError = "Could not save server profiles: \(error.localizedDescription)"
+        }
     }
 
     func flushPersistNow() {

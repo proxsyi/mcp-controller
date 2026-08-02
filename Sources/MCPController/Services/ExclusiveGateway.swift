@@ -69,9 +69,11 @@ struct ExclusiveLeaseArbiter: Sendable {
 final class ExclusiveGatewayManager: @unchecked Sendable {
     typealias StateHandler = @Sendable (UUID, GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     typealias LogHandler = @Sendable (UUID, String) -> Void
+    typealias FailureHandler = @Sendable (UUID, String) -> Void
 
     var onStateChange: StateHandler?
     var onLog: LogHandler?
+    var onFailure: FailureHandler?
 
     private let lock = NSLock()
     private var gateways: [UUID: ExclusiveGateway] = [:]
@@ -89,6 +91,9 @@ final class ExclusiveGatewayManager: @unchecked Sendable {
             },
             logHandler: { [weak self] message in
                 self?.onLog?(profile.id, message)
+            },
+            failureHandler: { [weak self] message in
+                self?.onFailure?(profile.id, message)
             }
         )
         lock.lock()
@@ -147,6 +152,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
     private let listener: NWListener
     private let stateHandler: @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void
     private let logHandler: @Sendable (String) -> Void
+    private let failureHandler: @Sendable (String) -> Void
     private var arbiter: ExclusiveLeaseArbiter
     private var bridgedProtocolVersions: [String: String] = [:]
     private var upstreamCapabilities: [String: Set<String>] = [:]
@@ -154,11 +160,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
     init(
         profile: ServerProfile,
         stateHandler: @escaping @Sendable (GatewayLeaseSnapshot?, [GatewayPendingSnapshot]) -> Void,
-        logHandler: @escaping @Sendable (String) -> Void
+        logHandler: @escaping @Sendable (String) -> Void,
+        failureHandler: @escaping @Sendable (String) -> Void
     ) throws {
         self.profile = profile
         self.stateHandler = stateHandler
         self.logHandler = logHandler
+        self.failureHandler = failureHandler
         self.arbiter = ExclusiveLeaseArbiter(timeout: TimeInterval(profile.leaseTimeoutSeconds))
         self.queue = DispatchQueue(label: "com.versyi.mcp-controller.gateway.\(profile.id.uuidString)")
         self.queue.setSpecific(key: queueKey, value: ())
@@ -177,7 +185,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
             case .ready:
                 self.logHandler("Exclusive gateway listening on 127.0.0.1:\(self.profile.gatewayPort).\n")
             case .failed(let error):
-                self.logHandler("Exclusive gateway failed: \(error.localizedDescription)\n")
+                let message = "Exclusive gateway failed: \(error.localizedDescription)"
+                self.logHandler(message + "\n")
+                self.failureHandler(message)
             default:
                 break
             }
@@ -275,11 +285,20 @@ private final class ExclusiveGateway: @unchecked Sendable {
             request.method,
             remoteClientCompatibilityEnabled: profile.remoteClientCompatibilityEnabled
         ) else {
-            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, and DELETE requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+            sendError(connection, status: 405, message: "This gateway accepts MCP POST, GET, DELETE, and OPTIONS requests. Remote compatibility also accepts HEAD probes.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
             return
         }
-        if let origin = request.headers["origin"], !profile.allowedOrigins.contains(origin) {
+        if let origin = request.headers["origin"], !isAllowedOrigin(origin) {
             sendError(connection, status: 403, message: "Origin is not allowed by this MCP gateway.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+            return
+        }
+        if request.method == "OPTIONS" {
+            sendPreflightOK(
+                connection,
+                origin: request.headers["origin"],
+                requestedHeaders: request.headers["access-control-request-headers"],
+                bufferedData: bufferedData
+            )
             return
         }
         if request.method == "HEAD" {
@@ -287,43 +306,25 @@ private final class ExclusiveGateway: @unchecked Sendable {
             sendHeadOK(connection, bufferedData: bufferedData)
             return
         }
-        if profile.remoteClientCompatibilityEnabled,
-           let sessionID = request.headers["mcp-session-id"],
-           let method = request.jsonRPCMethod {
-            let compatibilityResult: [String: Any]?
-            switch method {
-            case "resources/templates/list":
-                compatibilityResult = ["resourceTemplates": []]
-            case "resources/list":
-                compatibilityResult = ["resources": []]
-            case "prompts/list":
-                compatibilityResult = ["prompts": []]
-            default:
-                compatibilityResult = nil
-            }
-            if let result = compatibilityResult {
-                logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
-                logHandler("Compatibility fallback response: method=\(method), contentType=text/event-stream, session=\(sessionID.prefix(8))….\n")
-                sendCompatibilityResult(
-                    connection,
-                    requestID: request.jsonRPCID,
-                    sessionID: sessionID,
-                    protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
-                    result: result
-                )
-                return
-            }
-        }
         if request.method == "GET" {
             if let _ = request.headers["mcp-session-id"] {
-                guard arbiter.active != nil else {
+                guard let credential = authorizedCredential(for: request) else {
+                    sendError(connection, status: 401, message: "A per-AI Bearer access key is required.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+                    return
+                }
+                guard let activeLease = arbiter.active else {
                     sendError(connection, status: 404, message: "The MCP session is no longer active. Initialize again and retry.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
                     return
                 }
+                guard activeLease.clientID == credential.id.uuidString else {
+                    sendError(connection, status: 403, message: "This session belongs to a different authorized AI client.", requestID: request.jsonRPCID, keepConnectionOpen: true, bufferedData: bufferedData)
+                    return
+                }
+                _ = arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name)
                 publishState()
                 if profile.remoteClientCompatibilityEnabled {
                     logHandler("Compatibility session stream attached locally.\n")
-                    sendCompatibilitySessionStream(connection)
+                    sendCompatibilitySessionStream(connection, credential: credential)
                 } else {
                     proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
                 }
@@ -366,6 +367,25 @@ private final class ExclusiveGateway: @unchecked Sendable {
         switch arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name) {
         case .allowed:
             publishState()
+            if profile.remoteClientCompatibilityEnabled,
+               let sessionID = request.headers["mcp-session-id"],
+               let method = request.jsonRPCMethod,
+               let result = GatewayOptionalDiscoveryFallback.emptyResult(
+                    for: method,
+                    upstreamCapabilities: upstreamCapabilities[sessionID] ?? []
+               ) {
+                logHandler("Compatibility fallback: returned an empty \(method) result for Notion compatibility.\n")
+                sendCompatibilityResult(
+                    connection,
+                    requestID: request.jsonRPCID,
+                    sessionID: sessionID,
+                    protocolVersion: bridgedProtocolVersions[sessionID] ?? request.headers["mcp-protocol-version"],
+                    result: result,
+                    keepConnectionOpen: true,
+                    bufferedData: bufferedData
+                )
+                return
+            }
             proxy(request, connection: connection, bufferedDataAfterResponse: bufferedData)
         case .waiting:
             publishState()
@@ -382,6 +402,32 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
     }
 
+    private func isAllowedOrigin(_ origin: String) -> Bool {
+        let configured = profile.allowedOrigins.map(Self.normalizedOrigin)
+        guard !configured.isEmpty else { return true }
+        let normalized = Self.normalizedOrigin(origin)
+        return configured.contains(normalized)
+    }
+
+    private static func normalizedOrigin(_ origin: String) -> String {
+        let trimmed = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else {
+            return trimmed.lowercased()
+        }
+        let effectivePort = components.port ?? defaultPort(for: scheme)
+        return "\(scheme)://\(host):\(effectivePort)"
+    }
+
+    private static func defaultPort(for scheme: String) -> Int {
+        switch scheme {
+        case "http": 80
+        case "https": 443
+        default: 0
+        }
+    }
+
     private func authorizedCredential(for request: HTTPRequest) -> GatewayClientCredential? {
         guard let authorization = request.headers["authorization"], authorization.lowercased().hasPrefix("bearer ") else {
             return nil
@@ -390,7 +436,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
         return profile.clientCredentials.first(where: { $0.token == token })
     }
 
-    private func sendCompatibilitySessionStream(_ connection: NWConnection) {
+    private func sendCompatibilitySessionStream(_ connection: NWConnection, credential: GatewayClientCredential) {
         let eventID = "\(UUID().uuidString)_\(Int(Date().timeIntervalSince1970 * 1000))_0000_gek"
         let body = Data(("id: \(eventID)\ndata: \n\n").utf8)
         let headers = "HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
@@ -402,12 +448,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 self.logHandler("Compatibility session stream failed: \(error.localizedDescription)\n")
                 connection.cancel()
             } else {
-                self.scheduleCompatibilitySessionKeepalive(connection)
+                self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
             }
         })
     }
 
-    private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection) {
+    private func scheduleCompatibilitySessionKeepalive(_ connection: NWConnection, credential: GatewayClientCredential) {
         queue.asyncAfter(deadline: .now() + 15) { [weak self, weak connection] in
             guard let self, let connection else { return }
             let keepalive = HTTPChunkedBodyEncoder.encode(Data(": keepalive\n\n".utf8))
@@ -417,15 +463,21 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     self.logHandler("Compatibility session keepalive ended: \(error.localizedDescription)\n")
                     connection.cancel()
                 } else {
-                    self.scheduleCompatibilitySessionKeepalive(connection)
+                    guard self.arbiter.active?.clientID == credential.id.uuidString else {
+                        connection.cancel()
+                        return
+                    }
+                    _ = self.arbiter.authorize(clientID: credential.id.uuidString, clientName: credential.name)
+                    self.publishState()
+                    self.scheduleCompatibilitySessionKeepalive(connection, credential: credential)
                 }
             })
         }
     }
 
     private func sendCompatibilityHandshake(_ request: HTTPRequest, connection: NWConnection) {
-        let forwardedProto = request.headers["x-forwarded-proto"]
-        let host = request.headers["x-forwarded-host"] ?? request.headers["host"] ?? "127.0.0.1:\(profile.gatewayPort)"
+        let forwardedProto = firstForwardedValue(request.headers["x-forwarded-proto"])
+        let host = firstForwardedValue(request.headers["x-forwarded-host"]) ?? request.headers["host"] ?? "127.0.0.1:\(profile.gatewayPort)"
         let scheme: String
         if let forwardedProto, !forwardedProto.isEmpty {
             scheme = forwardedProto
@@ -450,6 +502,13 @@ private final class ExclusiveGateway: @unchecked Sendable {
                 connection.cancel()
             }
         })
+    }
+
+    private func firstForwardedValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let first = raw.split(separator: ",", maxSplits: 1).first.map(String.init) ?? ""
+        let trimmed = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func proxy(_ request: HTTPRequest, connection: NWConnection, bufferedDataAfterResponse: Data = Data()) {
@@ -513,10 +572,11 @@ private final class ExclusiveGateway: @unchecked Sendable {
     }
 
     private func upstreamRequestData(_ request: HTTPRequest, target: String) -> Data {
+        let excludedHeaders = upstreamExcludedHeaders(for: request)
         var headers = "\(request.method) \(target) HTTP/1.1\r\n"
         headers += "Host: 127.0.0.1:\(profile.localPort)\r\n"
         for (name, value) in request.headers.sorted(by: { $0.key < $1.key }) {
-            guard !["accept", "authorization", "host", "connection", "content-length", "transfer-encoding", "origin", "mcp-protocol-version", "x-forwarded-host", "x-forwarded-proto"].contains(name) else { continue }
+            guard !excludedHeaders.contains(name) else { continue }
             headers += "\(name): \(value)\r\n"
         }
         var protocolVersion = request.headers["mcp-protocol-version"]
@@ -536,13 +596,41 @@ private final class ExclusiveGateway: @unchecked Sendable {
         }
         headers += "User-Agent: MCP Controller\r\n"
         headers += "Content-Length: \(request.body.count)\r\n"
-        // Each accepted gateway socket currently carries exactly one HTTP request.
-        // Ask the upstream to close after its response so reverse proxies never reuse
-        // a backend connection that the gateway is still draining.
         headers += "Connection: close\r\n\r\n"
         var data = Data(headers.utf8)
         data.append(request.body)
         return data
+    }
+
+    private func upstreamExcludedHeaders(for request: HTTPRequest) -> Set<String> {
+        var excluded: Set<String> = [
+            "accept",
+            "authorization",
+            "connection",
+            "content-length",
+            "host",
+            "keep-alive",
+            "mcp-protocol-version",
+            "origin",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "proxy-connection",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "x-forwarded-host",
+            "x-forwarded-prefix",
+            "x-forwarded-proto"
+        ]
+        if let connectionHeader = request.headers["connection"] {
+            let namedHopByHopHeaders = connectionHeader
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+            excluded.formUnion(namedHopByHopHeaders)
+        }
+        return excluded
     }
 
     private func pipeUpstreamResponse(
@@ -565,11 +653,12 @@ private final class ExclusiveGateway: @unchecked Sendable {
             var combinedBuffer = upstreamResponseBuffer
             if let data, !data.isEmpty { combinedBuffer.append(data) }
 
+            let streamEnded = isComplete || error != nil
             var outgoing: Data?
             var responseComplete = false
             if let data, !data.isEmpty {
                 if let initializeBridge {
-                    let result = initializeBridge.consume(data, isFinal: isComplete || error != nil)
+                    let result = initializeBridge.consume(data, isFinal: streamEnded)
                     outgoing = result?.data
                     responseComplete = result?.responseComplete == true
                     if let sessionID = result?.sessionID {
@@ -583,16 +672,16 @@ private final class ExclusiveGateway: @unchecked Sendable {
                     }
                 } else {
                     outgoing = data
-                    responseComplete = HTTPResponseFraming.isComplete(combinedBuffer)
+                    responseComplete = HTTPResponseFraming.isComplete(combinedBuffer, closed: streamEnded)
                 }
-            } else if let initializeBridge, isComplete || error != nil {
+            } else if let initializeBridge, streamEnded {
                 let result = initializeBridge.finish()
                 outgoing = result?.data
                 responseComplete = result?.responseComplete == true
             }
 
             let closeAfterResponse = responseComplete
-            if (closeAfterResponse || isComplete || error != nil), !deadline.claim() {
+            if (closeAfterResponse || streamEnded), !deadline.claim() {
                 upstream.cancel()
                 return
             }
@@ -604,7 +693,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         _ = deadline.claim()
                         upstream.cancel()
                         client.cancel()
-                    } else if closeAfterResponse || isComplete || error != nil {
+                    } else if closeAfterResponse || streamEnded {
                         upstream.cancel()
                         self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
                     } else {
@@ -618,7 +707,7 @@ private final class ExclusiveGateway: @unchecked Sendable {
                         )
                     }
                 })
-            } else if isComplete || error != nil {
+            } else if streamEnded {
                 upstream.cancel()
                 self.continueReceiving(on: client, bufferedData: bufferedDataAfterResponse)
             } else {
@@ -636,8 +725,31 @@ private final class ExclusiveGateway: @unchecked Sendable {
 
     private func sendHeadOK(_ connection: NWConnection, bufferedData: Data = Data()) {
         let response = Data(
-            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE\r\nCache-Control: no-store\r\n\r\n".utf8
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nAllow: GET, HEAD, POST, DELETE, OPTIONS\r\nCache-Control: no-store\r\n\r\n".utf8
         )
+        send(connection, data: response, keepConnectionOpen: true, bufferedData: bufferedData)
+    }
+
+    private func sendPreflightOK(
+        _ connection: NWConnection,
+        origin: String?,
+        requestedHeaders: String?,
+        bufferedData: Data = Data()
+    ) {
+        let allowOrigin = origin ?? "null"
+        let allowHeaders = requestedHeaders?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? requestedHeaders!
+            : "authorization, content-type, mcp-session-id, mcp-protocol-version"
+        let response = Data((
+            "HTTP/1.1 204 No Content\r\n" +
+            "Content-Length: 0\r\n" +
+            "Allow: GET, HEAD, POST, DELETE, OPTIONS\r\n" +
+            "Access-Control-Allow-Origin: \(allowOrigin)\r\n" +
+            "Access-Control-Allow-Methods: GET, HEAD, POST, DELETE, OPTIONS\r\n" +
+            "Access-Control-Allow-Headers: \(allowHeaders)\r\n" +
+            "Access-Control-Max-Age: 600\r\n" +
+            "Vary: Origin, Access-Control-Request-Headers\r\n\r\n"
+        ).utf8)
         send(connection, data: response, keepConnectionOpen: true, bufferedData: bufferedData)
     }
 
@@ -668,6 +780,9 @@ private final class ExclusiveGateway: @unchecked Sendable {
         ]
         if let sessionID, !sessionID.isEmpty {
             headerLines.append("Mcp-Session-Id: \(sessionID)")
+        }
+        if let protocolVersion, !protocolVersion.isEmpty {
+            headerLines.append("MCP-Protocol-Version: \(protocolVersion)")
         }
 
         let headers = headerLines.joined(separator: "\r\n") + "\r\n\r\n"
@@ -732,7 +847,7 @@ enum GatewayRequestDeadlinePolicy {
 enum GatewayRequestMethodPolicy {
     static func accepts(_ method: String, remoteClientCompatibilityEnabled: Bool) -> Bool {
         switch method.uppercased() {
-        case "POST", "GET", "DELETE":
+        case "POST", "GET", "DELETE", "OPTIONS":
             true
         case "HEAD":
             remoteClientCompatibilityEnabled
@@ -769,20 +884,23 @@ enum GatewayRouteMapper {
     }
 
     static func upstreamTarget(for requestTarget: String, profile: ServerProfile) -> String {
+        let pieces = requestTarget.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pieces.isEmpty ? "/" : String(pieces[0])
+        let query = pieces.count > 1 ? "?" + String(pieces[1]) : ""
         let mount = profile.normalizedMountPath
         let endpoint = profile.streamableHTTPPath ?? "/"
 
-        if requestTarget == "/" || requestTarget == mount {
-            return endpoint
+        if path == "/" || path == mount {
+            return endpoint + query
         }
         if mount != "/" {
             let prefix = mount + "/"
-            if requestTarget.hasPrefix(prefix) {
-                let stripped = String(requestTarget.dropFirst(mount.count))
-                return stripped.isEmpty ? endpoint : stripped
+            if path.hasPrefix(prefix) {
+                let stripped = String(path.dropFirst(mount.count))
+                return (stripped.isEmpty ? endpoint : stripped) + query
             }
         }
-        return requestTarget
+        return path + query
     }
 }
 
@@ -857,17 +975,19 @@ private struct HTTPRequest {
             let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: decoded.body)
             return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + decoded.bytesConsumed)
         }
-        let length = Int(headers["content-length"] ?? "0") ?? 0
-        guard data.count >= bodyStart + length else { return nil }
-        let body = data.subdata(in: bodyStart..<(bodyStart + length))
+        guard let length = Int(headers["content-length"] ?? "0"),
+              length >= 0,
+              bodyStart <= data.count,
+              length <= data.count - bodyStart else { return nil }
+        let bodyEnd = bodyStart + length
+        let body = data.subdata(in: bodyStart..<bodyEnd)
         let request = HTTPRequest(method: String(requestParts[0]).uppercased(), target: String(requestParts[1]), headers: headers, body: body)
-        return HTTPRequestParseResult(request: request, bytesConsumed: bodyStart + length)
+        return HTTPRequestParseResult(request: request, bytesConsumed: bodyEnd)
     }
 }
 
-
 private enum HTTPResponseFraming {
-    static func isComplete(_ data: Data) -> Bool {
+    static func isComplete(_ data: Data, closed: Bool = false) -> Bool {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerRange = data.range(of: separator), let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else {
             return false
@@ -876,20 +996,26 @@ private enum HTTPResponseFraming {
         let headers = headerText.components(separatedBy: "\r\n")
         var transferEncoding: String?
         var contentLength: Int?
+        var connectionHeader: String?
         for line in headers.dropFirst() {
             guard let split = line.firstIndex(of: ":") else { continue }
             let name = line[..<split].trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: split)...].trimmingCharacters(in: .whitespaces)
             if name == "transfer-encoding" { transferEncoding = value.lowercased() }
             if name == "content-length" { contentLength = Int(value) }
+            if name == "connection" { connectionHeader = value.lowercased() }
         }
         if transferEncoding?.contains("chunked") == true {
             let encodedBody = data.subdata(in: bodyStart..<data.endIndex)
             guard let decoded = HTTPChunkedBodyDecoder.decodeWithConsumed(encodedBody) else { return false }
             return encodedBody.count >= decoded.bytesConsumed
         }
-        if let contentLength { return data.count >= bodyStart + contentLength }
-        return false
+        if let contentLength {
+            guard contentLength >= 0, bodyStart <= data.count else { return false }
+            return contentLength <= data.count - bodyStart
+        }
+        if closed { return true }
+        return connectionHeader?.contains("close") == true && closed
     }
 }
 

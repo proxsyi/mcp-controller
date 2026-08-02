@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 extension AppModel {
-    func handleTerminalCommand(_ request: TerminalControlRequest) -> TerminalControlResponse {
+    func handleTerminalCommand(_ request: TerminalControlRequest) async -> TerminalControlResponse {
         let action = request.action.lowercased()
         switch action {
         case "list", "status":
@@ -77,8 +77,8 @@ extension AppModel {
             case "start": start(profile)
             case "stop": stop(profile)
             case "restart": stop(profile) { [weak self] in self?.start(profile) }
-            case "route-start": if !startTailscaleRoute(profile) { return .error(presentedError ?? "Route could not start.") }
-            case "route-stop": if !stopTailscaleRoute(profile) { return .error(presentedError ?? "Route could not stop.") }
+            case "route-start": if !(await startTailscaleRoute(profile)) { return .error(presentedError ?? "Route could not start.") }
+            case "route-stop": if !(await stopTailscaleRoute(profile)) { return .error(presentedError ?? "Route could not stop.") }
             default: releaseLease(profileID: profile.id)
             }
             return .ok("\(action) accepted for \(profile.name).")
@@ -99,13 +99,21 @@ extension AppModel {
         case "clear-logs":
             guard let profile = terminalServerProfile(request.target) else { return .error("Server not found.") }
             clearLog(for: profile.id); return .ok("Cleared logs for \(profile.name).")
-        case "funnel-start": startTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes started.") : .error(presentedError!)
-        case "funnel-stop": stopTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes stopped.") : .error(presentedError!)
+        case "funnel-start": await startTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes started.") : .error(presentedError!)
+        case "funnel-stop": await stopTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes stopped.") : .error(presentedError!)
         case "funnel-status": return .ok(tailscaleFunnelRunning ? "running" : "stopped")
         case "use-default-cli": applyDefaultTailscaleCLIToAllProfiles(); return .ok("Updated every profile to use the default Tailscale CLI path.")
         case "one-ai":
-            let enabled = request.arguments["enabled"] == "true"
-            applyGlobalOneAIPolicy(enabled); UserDefaults.standard.set(enabled, forKey: "settings.oneAIOnly")
+            guard let enabledValue = request.arguments["enabled"] else {
+                return .error("Pass --enabled true or false.")
+            }
+            let enabled = enabledValue == "true"
+            applyGlobalOneAIPolicy(enabled)
+            if let shared = AppSettings.shared {
+                shared.oneAIOnly = enabled
+            } else {
+                UserDefaults.standard.set(enabled, forKey: "settings.oneAIOnly")
+            }
             return .ok("One-AI policy \(enabled ? "enabled" : "disabled").")
         case "pending":
             return pendingResponse(for: request.target)
@@ -160,12 +168,13 @@ extension AppModel {
             return .ok(onInstallUpdate())
         case "open": NSApplication.shared.activate(ignoringOtherApps: true); return .ok("Opened MCP Controller.")
         case "settings":
+            AppSettings.shared?.preferredSettingsSection = "app"
             if NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
                 return .ok("Opened Settings.")
             }
             onShowSettings?()
             return .ok("Opened Settings.")
-        case "quit": shutdownForApplicationQuit(); NSApplication.shared.terminate(nil); return .ok("Quitting MCP Controller.")
+        case "quit": NSApplication.shared.terminate(nil); return .ok("Quitting MCP Controller.")
         default: return .error("Unknown action: \(request.action)")
         }
     }

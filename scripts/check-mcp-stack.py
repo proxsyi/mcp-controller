@@ -11,14 +11,16 @@ import subprocess
 from pathlib import Path
 
 HOME = Path.home()
-REPO = HOME / "Projects/Clients/Versyi/MCP-Controller"
-CONFIG = HOME / "Library/Application Support/MCP Controller/servers.json"
-APP = Path("/Applications/MCP Controller.app")
-OUTPUT = HOME / "Desktop/mcp-controller-diagnostics.txt"
+TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+REPO = Path(os.environ.get("MCP_CONTROLLER_REPO", HOME / "Projects/Clients/Versyi/MCP-Controller"))
+CONFIG = Path(os.environ.get("MCP_CONTROLLER_CONFIG", HOME / "Library/Application Support/MCP Controller/servers.json"))
+APP = Path(os.environ.get("MCP_CONTROLLER_APP", "/Applications/MCP Controller.app"))
+OUTPUT = Path(os.environ.get("MCP_CONTROLLER_REPORT", HOME / f"Desktop/mcp-controller-diagnostics-{TIMESTAMP}.txt"))
+PREFERRED_CREDENTIAL = os.environ.get("MCP_CLIENT", "").strip() or os.environ.get("MCP_CREDENTIAL", "").strip()
 RESULTS = []
 PAYLOAD = json.dumps({
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
-    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+    "params": {"protocolVersion": "2025-11-25", "capabilities": {},
                "clientInfo": {"name": "mcp-stack-check", "version": "1.0"}},
 }, separators=(",", ":"))
 
@@ -80,6 +82,19 @@ def listener(port):
     return run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"]).stdout.strip()
 
 
+def selected_token(profile):
+    credentials = profile.get("clientCredentials") or []
+    if not credentials:
+        return ""
+    if PREFERRED_CREDENTIAL:
+        credential = next((item for item in credentials if item.get("name", "").casefold() == PREFERRED_CREDENTIAL.casefold()), None)
+        if credential is None:
+            raise SystemExit(f"Credential {PREFERRED_CREDENTIAL!r} was not found for {profile.get('name', 'Unnamed')}")
+        return credential.get("token", "")
+    notion = next((item for item in credentials if item.get("name", "").casefold() == "notion"), None)
+    return (notion or credentials[0]).get("token", "")
+
+
 def probe(label, url, token="", method="POST", timeout=10):
     command = ["curl", "-sS", "-i", "--no-buffer", "--max-time", str(timeout),
                "-H", "Accept: application/json, text/event-stream"]
@@ -128,6 +143,10 @@ def probe(label, url, token="", method="POST", timeout=10):
             print("   ", line[:600])
 
 
+def server_profiles(profiles):
+    return [profile for profile in profiles if profile.get("kind", "server") == "server"]
+
+
 def main():
     heading("SYSTEM, SOURCE, AND INSTALLED BUILD")
     print("Generated:", datetime.datetime.now().astimezone().isoformat())
@@ -148,12 +167,12 @@ def main():
         print("Built SHA:    ", sha256(built))
     if installed.exists() and built.exists():
         print("Binary match:", "PASS" if sha256(installed) == sha256(built) else "FAIL")
-    print("Processes:\n" + (run(["pgrep", "-fl", "MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript|automation"]).stdout.strip() or "none"))
+    print("Processes:\n" + (run(["pgrep", "-fl", "MCPController|supergateway|macos-mcp|mcp_remote_macos_use|mcp-applescript"]).stdout.strip() or "none"))
 
     if not CONFIG.exists():
         raise SystemExit(f"Missing config: {CONFIG}")
     with open(CONFIG) as source:
-        profiles = json.load(source)
+        profiles = server_profiles(json.load(source))
 
     heading("PROFILE CONFIGURATION AND LISTENERS")
     for profile in profiles:
@@ -203,7 +222,7 @@ def main():
         gateway_port = int(profile.get("gatewayPort", 0))
         endpoint, _ = expected_endpoint(profile)
         mount = normalize_path(profile.get("mountPath"))
-        token = ((profile.get("clientCredentials") or [{}])[0].get("token") or "")
+        token = selected_token(profile)
         print(f"\n--- {name} ---")
         if not listener(local_port):
             print("[SKIP] Upstream is not running")
@@ -220,7 +239,7 @@ def main():
         if dns_name and profile.get("tailscaleRouteEnabled") and profile.get("exposureMode") != "disabled":
             port = int(profile.get("publicPort", 443))
             port_suffix = "" if port == 443 else f":{port}"
-            public_base = f"https://{dns_name}{port_suffix}" + (mount if mount != "/" else "")
+            public_base = "https://" + dns_name + port_suffix + (mount if mount != "/" else "")
             probe("public displayed/base URL", public_base, token, timeout=15)
             probe("public URL plus endpoint", join_path(public_base, endpoint), token, timeout=15)
 

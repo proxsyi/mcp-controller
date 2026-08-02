@@ -33,15 +33,22 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
                 output.append(Data("0\r\n\r\n".utf8))
                 return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: true)
             }
-            if let raw = transform(buffer) {
-                return resolve(raw.body, sessionID: sessionID(in: headerText), upstream: raw.upstream, capabilities: raw.capabilities, responseComplete: false)
+            if let available = HTTPChunkedBodyDecoder.decodeAvailableChunks(encodedBody),
+               let transformed = transform(available.body) {
+                var output = header
+                output.append(HTTPChunkedBodyEncoder.encode(transformed.body))
+                if available.bytesConsumed < encodedBody.count {
+                    output.append(encodedBody.subdata(in: available.bytesConsumed..<encodedBody.count))
+                }
+                return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: false)
             }
             return isFinal || buffer.count > 1_048_576 ? finish() : nil
         }
 
         if let length = contentLength(in: headerText), encodedBody.count < length { return isFinal ? finish() : nil }
         if let transformed = transform(encodedBody) {
-            var output = header; output.append(transformed.body)
+            var output = replacingContentLength(in: headerText, with: transformed.body.count)
+            output.append(transformed.body)
             return resolve(output, sessionID: sessionID(in: headerText), upstream: transformed.upstream, capabilities: transformed.capabilities, responseComplete: true)
         }
         return isFinal || buffer.count > 1_048_576 ? finish() : nil
@@ -99,12 +106,13 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
               var result = object["result"] as? [String: Any],
               result["protocolVersion"] is String else { return nil }
         var capabilities = result["capabilities"] as? [String: Any] ?? [:]
+        let upstreamCapabilities = Set(capabilities.keys).union([GatewayOptionalDiscoveryFallback.initializedSessionMarker])
         if capabilities["prompts"] == nil { capabilities["prompts"] = [:] }
         if capabilities["resources"] == nil { capabilities["resources"] = [:] }
         result["capabilities"] = capabilities
         object["result"] = result
         guard let normalizedData = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return (String(decoding: normalizedData, as: UTF8.self), Set(capabilities.keys))
+        return (String(decoding: normalizedData, as: UTF8.self), upstreamCapabilities)
     }
 
     private func extractCapabilities(from text: String) -> Set<String>? {
@@ -119,9 +127,21 @@ final class GatewayInitializeResponseBridge: @unchecked Sendable {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let result = object["result"] as? [String: Any],
                   let capabilities = result["capabilities"] as? [String: Any] else { continue }
-            return Set(capabilities.keys)
+            return Set(capabilities.keys).union([GatewayOptionalDiscoveryFallback.initializedSessionMarker])
         }
         return nil
+    }
+
+    private func replacingContentLength(in headers: String, with length: Int) -> Data {
+        let lines = headers.components(separatedBy: "\r\n")
+        let updated = lines.map { line -> String in
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" else {
+                return line
+            }
+            return "Content-Length: \(length)"
+        }
+        return Data(updated.joined(separator: "\r\n").utf8)
     }
 
     private func sessionID(in headers: String) -> String? {

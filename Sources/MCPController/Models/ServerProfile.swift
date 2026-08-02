@@ -23,7 +23,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var arguments: [String] = []; var workingDirectory = ""; var environment: [String: String] = [:]
     var localPort = 3000; var exposureMode: ExposureMode = .disabled; var tailscaleRouteEnabled = false
     var publicPort = 443; var mountPath = "/"; var tailscalePath = TailscaleRouteService.defaultCLIPath
-    var startupDelaySeconds = 1.0; var autoStart = false; var exclusiveGatewayEnabled = false
+    var startupDelaySeconds = 15.0; var autoStart = false; var exclusiveGatewayEnabled = false
     var remoteClientCompatibilityEnabled = false
     var gatewayPort = 39000; var leaseTimeoutSeconds = 900; var publicRequestTimeoutSeconds = 300; var allowedOrigins: [String] = []
     var clientCredentials: [GatewayClientCredential] = []
@@ -34,10 +34,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
 
     var normalizedMountPath: String {
         guard isServer else { return "/" }
-        let trimmed = mountPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "/" { return "/" }
-        let prefixed = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
-        return prefixed.hasSuffix("/") ? String(prefixed.dropLast()) : prefixed
+        return Self.normalizedPath(mountPath)
     }
     var exposedLocalPort: Int { exclusiveGatewayEnabled ? gatewayPort : localPort }
 
@@ -48,6 +45,12 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         }
         if let argument = arguments.first(where: { $0.hasPrefix("--streamableHttpPath=") }) {
             return Self.normalizedEndpointPath(String(argument.dropFirst("--streamableHttpPath=".count)))
+        }
+        if let index = arguments.firstIndex(where: { $0 == "--path" || $0 == "--mcp-path" }), arguments.indices.contains(index + 1) {
+            return Self.normalizedEndpointPath(arguments[index + 1])
+        }
+        if let argument = arguments.first(where: { $0.hasPrefix("--path=") || $0.hasPrefix("--mcp-path=") }) {
+            return Self.normalizedEndpointPath(String(argument.split(separator: "=", maxSplits: 1).dropFirst().first ?? Substring("/")))
         }
         if let index = arguments.firstIndex(of: "--transport"), arguments.indices.contains(index + 1) {
             let transport = arguments[index + 1].lowercased()
@@ -65,9 +68,17 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     }
 
     private static func normalizedEndpointPath(_ path: String) -> String {
+        normalizedPath(path)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "/" }
-        return trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        guard !trimmed.isEmpty, trimmed != "/" else { return "/" }
+        var normalized = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
     }
 
     func validationErrors() -> [String] {
@@ -107,8 +118,9 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         exposureMode = try v.decodeIfPresent(ExposureMode.self, forKey: .exposureMode) ?? .disabled; tailscaleRouteEnabled = try v.decodeIfPresent(Bool.self, forKey: .tailscaleRouteEnabled) ?? false
         publicPort = try v.decodeIfPresent(Int.self, forKey: .publicPort) ?? 443; mountPath = try v.decodeIfPresent(String.self, forKey: .mountPath) ?? "/"
         let storedPath = try v.decodeIfPresent(String.self, forKey: .tailscalePath) ?? ""
-        tailscalePath = storedPath.isEmpty || !TailscaleRouteService.isCLIAvailable(at: storedPath) ? TailscaleRouteService.defaultCLIPath : storedPath
-        startupDelaySeconds = try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 1; autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
+        tailscalePath = storedPath.isEmpty ? TailscaleRouteService.defaultCLIPath : storedPath
+        startupDelaySeconds = max(15, try v.decodeIfPresent(Double.self, forKey: .startupDelaySeconds) ?? 15)
+        autoStart = try v.decodeIfPresent(Bool.self, forKey: .autoStart) ?? false
         exclusiveGatewayEnabled = try v.decodeIfPresent(Bool.self, forKey: .exclusiveGatewayEnabled) ?? false
         remoteClientCompatibilityEnabled = try v.decodeIfPresent(Bool.self, forKey: .remoteClientCompatibilityEnabled) ?? false
         gatewayPort = try v.decodeIfPresent(Int.self, forKey: .gatewayPort) ?? 39000

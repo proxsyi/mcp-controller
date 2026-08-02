@@ -68,7 +68,10 @@ struct SettingsToggleCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
-                if !coordinator.handleSettingsShortcut() { openSettings() }
+                if !coordinator.handleSettingsShortcut() {
+                    AppSettings.shared?.preferredSettingsSection = "app"
+                    openSettings()
+                }
             }
             .keyboardShortcut(",", modifiers: .command)
         }
