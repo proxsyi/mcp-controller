@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.10 candidate — 2026-08-02
+## 0.8.10 — 2026-08-02
 
 ### Fixed
 - Kept the original transient `NSPopover` and its exact SwiftUI content, sizing, materials, controls, and native click-away behavior.

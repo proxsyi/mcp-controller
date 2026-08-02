@@ -55,7 +55,7 @@ For every new profile:
 
 ## Current controller state — August 2, 2026
 
-- MCP Controller `v0.8.6` build 33 is installed as the sole Applications bundle and process.
+- MCP Controller `v0.8.10` build 37 is installed as the sole Applications bundle and process.
 - All 18 profiles report Running.
 - The current validation matrix passed 51/51 tested local, gateway, and public surfaces; MacOS System was skipped only when its active lease was held by the validating chat.
 - Serena `1.6.1`, WCGW `5.6.4`, and Desktop Commander `0.2.46` are unrestricted at the operating-system capability level by explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, and route controls remain enabled.

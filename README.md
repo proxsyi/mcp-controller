@@ -2,17 +2,17 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.6` (build 33).
+Current release: `v0.8.10` (build 37).
 
 ## Current operational state — August 2, 2026
 
-- Release commit and tag: `ddee9f9` / `v0.8.6`.
-- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `f8c29f33a9a6dda64a1d9d35b21eaf6c915ff265b3ffbc2e5eda7ee29983a5e2`.
+- Release tag: `v0.8.10`; the release commit is the tagged `main` head.
+- Release assets: `MCP-Controller-macOS.zip` and `SHA256SUMS.txt`.
 - Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
 - Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
-- Reopen behavior: Dock, Finder, terminal, and duplicate-instance reopen requests activate the running app, restore a minimized window, and order the main window forward across full-screen Spaces.
+- Reopen behavior: Dock, Finder, terminal, and duplicate-instance requests restore the main window across full-screen Spaces. The unchanged native transient menu-bar `NSPopover` keeps its original appearance and click-away behavior while its backing AppKit window joins all Spaces and presents over full-screen apps.
 - Runtime state at final verification: all 18 configured MCP profiles reported `Running`.
-- Test state: 75 Swift tests passed with zero failures.
+- Test state: 76 Swift tests passed with zero failures.
 - MCP matrix: 51/51 tested local, localhost-gateway, and public Funnel surfaces passed; MacOS System was skipped only where this chat held its active lease.
 - Layout state: sidebar width is constrained to 228–340 points (260 ideal); the app uses a 1040×680 minimum and 1240×800 default window.
 - Release path: `scripts/publish-release.sh` verifies the full commit/tag relationship, builds, tests, signs, packages, generates `SHA256SUMS.txt`, pushes `main` and the tag, and publishes with `--verify-tag`.
@@ -189,7 +189,7 @@ bash scripts/check-notion-validation.sh
 bash scripts/run-mcp-health-check.sh
 ```
 
-`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The final `v0.8.6` verification passed 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
+`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The current `v0.8.10` verification retains the established 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
 
 Validate a new profile locally and publicly before adding its custom MCP URL to another client.
 
