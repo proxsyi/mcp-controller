@@ -4,6 +4,22 @@ MCP Controller is a native macOS app for managing MCP server processes, access g
 
 Current release: `v0.8.6` (build 33).
 
+## Current operational state — August 2, 2026
+
+- Release commit and tag: `ddee9f9` / `v0.8.6`.
+- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `f8c29f33a9a6dda64a1d9d35b21eaf6c915ff265b3ffbc2e5eda7ee29983a5e2`.
+- Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
+- Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
+- Reopen behavior: Dock, Finder, terminal, and duplicate-instance reopen requests activate the running app, restore a minimized window, and order the main window forward across full-screen Spaces.
+- Runtime state at final verification: all 18 configured MCP profiles reported `Running`.
+- Test state: 75 Swift tests passed with zero failures.
+- MCP matrix: 51/51 tested local, localhost-gateway, and public Funnel surfaces passed; MacOS System was skipped only where this chat held its active lease.
+- Layout state: sidebar width is constrained to 228–340 points (260 ideal); the app uses a 1040×680 minimum and 1240×800 default window.
+- Release path: `scripts/publish-release.sh` verifies the full commit/tag relationship, builds, tests, signs, packages, generates `SHA256SUMS.txt`, pushes `main` and the tag, and publishes with `--verify-tag`.
+- Install path: `scripts/install-local.sh` stops all Controller copies, atomically replaces the Applications bundle, removes the temporary `dist` app, installs `mcpctl`, and launches one stable copy.
+
+The repository intentionally leaves local runtime artifacts untracked: `.playwright-mcp/`, `.serena/`, `mcp-profiles/`, `mcp-server.log`, and `mcp-server-error.log`. The error log was empty at final verification; the regular server log contained successful ReactBits startup and search activity.
+
 ## What it does
 
 - Stores reusable profiles for independently installed local servers and hosted MCP bridges.
@@ -173,7 +189,7 @@ bash scripts/check-notion-validation.sh
 bash scripts/run-mcp-health-check.sh
 ```
 
-`validate-all-profiles.py` checks every configured profile through both the localhost gateway and its public Tailscale route, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease.
+`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The final `v0.8.6` verification passed 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
 
 Validate a new profile locally and publicly before adding its custom MCP URL to another client.
 
@@ -184,6 +200,18 @@ Process inspection, readiness polling, gateway startup, route changes, Tailscale
 The circular arrow beside a server and Release All are lease-release controls. They disconnect the current AI lease without stopping the MCP server, allowing the same or another authorized client to reconnect.
 
 Protected public routes have a separate request deadline from lease expiry. New and legacy profiles default to a five-minute public request timeout, configurable from 1 to 60 minutes. Requests that have not begun responding receive HTTP 504 at the deadline; already-streaming responses are closed cleanly instead of receiving a second HTTP response. Long-lived compatibility GET streams are exempt from the bounded tool-request deadline and receive 15-second keepalives so Notion sessions remain alive through Funnel.
+
+## Release, installation, and maintenance decisions
+
+- `scripts/publish-release.sh` is the validated manual release path while GitHub Actions is blocked by account billing. It requires a clean tracked tree, verifies that the version tag points to the full current commit, reruns tests and the production build, verifies the signature, creates the ZIP and checksum, pushes `main` and the tag, and publishes with `--verify-tag`.
+- `scripts/install-local.sh` is the validated local install path. It stages and verifies the app, stops all Controller processes, atomically replaces `/Applications/MCP Controller.app`, installs `mcpctl`, removes the temporary build app, and launches one Applications copy.
+- Tagged GitHub Actions releases require configured Developer ID certificate and signing identity secrets. Local manual artifacts currently use `Session Pinger Signing`.
+- GitHub Official remains a direct connection rather than a Controller-managed profile.
+- Serena, WCGW, and Desktop Commander remain unrestricted at the macOS capability level by Cash's explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, compatibility handling, and route controls are connection protections, not capability sandboxes.
+- Upstream MCP and skill source code is not modified as part of Controller maintenance.
+- Gateway-key rotation and Keychain migration are intentionally not tracked as future Controller work.
+
+Deferred work: Developer ID signing/notarization and final distribution choice; OpenPencil live-canvas/font repair; a live intentionally delayed request to verify HTTP 504 behavior; upstream-compatible remediation for the audited Mac OS System, Visual, AppleScript/Apps, Remote, Google Stitch, and Cloudflare dependencies; and pinning `turnstile-spin` persistence to an audited commit before reproducible use.
 
 ## Security
 

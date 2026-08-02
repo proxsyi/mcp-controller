@@ -1,5 +1,9 @@
 # Changelog
 
+## Documentation — 2026-08-02
+
+- Synchronized the README, server-role guide, release identifiers, installed/runtime state, validation totals, singleton/reopen behavior, release and install procedures, decisions, known constraints, and deferred work with the published `v0.8.6` state.
+
 ## 0.8.6 — 2026-08-02
 
 ### Fixed

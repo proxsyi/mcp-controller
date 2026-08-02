@@ -19,6 +19,9 @@ Use the narrowest server that directly matches the task. Product-specific server
 | **Cloudflare** | Workers and Cloudflare infrastructure | The task needs Workers, Pages, KV, R2, D1, queues, routes, zones, or related services |
 | **PostHog** | Product analytics and experimentation | The task needs events, funnels, insights, feature flags, experiments, replay, or PostHog error data |
 | **Sentry** | Application errors and debugging | The task needs Sentry organizations, projects, issues, events, traces, or Seer analysis |
+| **Serena** | Semantic code navigation and editing | The task needs repository-aware symbol discovery, references, structured edits, or project memories |
+| **WCGW** | Shell, file, and coding workflows | The task needs a second general terminal/coding path or redundancy for system operations |
+| **Desktop Commander** | Terminal, process, search, and unrestricted file tools | The task needs broad desktop-terminal operations through its explicitly accepted dependency-risk profile |
 
 ## Selection order
 
@@ -28,7 +31,8 @@ Use the narrowest server that directly matches the task. Product-specific server
 4. Use **MacOS AppleScript** for supported structured app data.
 5. Use **MacOS System** for terminal, files, diagnostics, and semantic desktop interaction.
 6. Use **MacOS Visual** only when visual targeting is necessary.
-7. Use **MacOS Remote** only for an intentional remote/VNC session.
+7. Use **Serena** for semantic repository work; use **WCGW** or **Desktop Commander** only when their broader terminal/file capabilities are the direct fit.
+8. Use **MacOS Remote** only for an intentional remote/VNC session.
 
 ## Remote-service bridge
 
@@ -48,3 +52,12 @@ For every new profile:
 6. Connect the external client only after all checks pass.
 
 `scripts/test-mcp-servers.py`, `scripts/check-mcp-stack.py`, and the profile-specific diagnostics provide repeatable checks. Never assume a successful process launch proves the public MCP route works.
+
+## Current controller state — August 2, 2026
+
+- MCP Controller `v0.8.6` build 33 is installed as the sole Applications bundle and process.
+- All 18 profiles report Running.
+- The current validation matrix passed 51/51 tested local, gateway, and public surfaces; MacOS System was skipped only when its active lease was held by the validating chat.
+- Serena `1.6.1`, WCGW `5.6.4`, and Desktop Commander `0.2.46` are unrestricted at the operating-system capability level by explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, and route controls remain enabled.
+- Desktop Commander's 13 high and 1 moderate audited dependency findings remain an explicitly accepted exception. Serena and WCGW had zero known dependency findings in their audited environments.
+- OpenPencil remains deferred pending its reachable advisory and live-canvas/font work.
