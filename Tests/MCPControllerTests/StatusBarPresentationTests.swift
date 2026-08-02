@@ -28,11 +28,4 @@ final class StatusBarPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.symbolName, "bolt.horizontal.circle")
         XCTAssertEqual(presentation.tooltip, "MCP Controller — no servers running")
     }
-    func testStatusPanelCanAppearOverFullScreenSpaces() {
-        XCTAssertEqual(StatusPanelPresentation.level, .popUpMenu)
-        XCTAssertTrue(StatusPanelPresentation.collectionBehavior.contains(.canJoinAllSpaces))
-        XCTAssertTrue(StatusPanelPresentation.collectionBehavior.contains(.fullScreenAuxiliary))
-        XCTAssertTrue(StatusPanelPresentation.collectionBehavior.contains(.transient))
-    }
-
 }

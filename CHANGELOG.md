@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.8.7 — 2026-08-02
-
-### Fixed
-- Replaced the menu-bar `NSPopover` with a popup-level nonactivating panel that joins every Space and is explicitly eligible to appear over full-screen applications.
-- Anchored the panel to the menu-bar item on the active screen without activating MCP Controller or switching away from the current full-screen Space.
-
 ## Documentation — 2026-08-02
 
 - Synchronized the README, server-role guide, release identifiers, installed/runtime state, validation totals, singleton/reopen behavior, release and install procedures, decisions, known constraints, and deferred work with the published `v0.8.6` state.

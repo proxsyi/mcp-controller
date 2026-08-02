@@ -13,7 +13,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             .first(where: { $0.processIdentifier != currentPID }) else { return }
 
         isDuplicateLaunch = true
-        existing.activate(options: [.activateAllWindows])
+        existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         DispatchQueue.main.async {
             NSApplication.shared.terminate(nil)
         }
@@ -28,7 +28,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func presentMainWindow(in application: NSApplication) {
-        application.activate()
+        application.activate(ignoringOtherApps: true)
 
         let candidate = application.keyWindow
             ?? application.mainWindow

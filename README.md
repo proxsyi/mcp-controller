@@ -2,15 +2,15 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.7` (build 34).
+Current release: `v0.8.6` (build 33).
 
 ## Current operational state — August 2, 2026
 
-- Release tag: `v0.8.7` (build 34).
-- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `575dd9a94f359bcc6ee102ba1b4aa8d308372961b2b14a6618bf0b0c864c40fb`.
+- Release commit and tag: `ddee9f9` / `v0.8.6`.
+- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `f8c29f33a9a6dda64a1d9d35b21eaf6c915ff265b3ffbc2e5eda7ee29983a5e2`.
 - Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
 - Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
-- Menu-bar behavior: the status item now uses a popup-level nonactivating panel with `canJoinAllSpaces` and `fullScreenAuxiliary`, so it opens over the current full-screen app without switching Spaces. Dock, Finder, terminal, and duplicate-instance requests still restore and present the main window.
+- Reopen behavior: Dock, Finder, terminal, and duplicate-instance reopen requests activate the running app, restore a minimized window, and order the main window forward across full-screen Spaces.
 - Runtime state at final verification: all 18 configured MCP profiles reported `Running`.
 - Test state: 75 Swift tests passed with zero failures.
 - MCP matrix: 51/51 tested local, localhost-gateway, and public Funnel surfaces passed; MacOS System was skipped only where this chat held its active lease.
@@ -189,7 +189,7 @@ bash scripts/check-notion-validation.sh
 bash scripts/run-mcp-health-check.sh
 ```
 
-`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The final pre-release catalog verification passed 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
+`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The final `v0.8.6` verification passed 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
 
 Validate a new profile locally and publicly before adding its custom MCP URL to another client.
 
