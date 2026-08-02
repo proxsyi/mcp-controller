@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5 — 2026-08-02
+
+### Fixed
+- Prevented a second MCP Controller process from completing launch when another copy with the same bundle identifier is already running; the existing app is activated instead.
+- Made local installation stop all Controller copies, replace the Applications bundle atomically, remove the temporary build app, and launch exactly one installed copy.
+- Added a repeatable manual-release helper that verifies a full commit/tag target and publishes against the pushed tag without the invalid short-SHA target error.
+
 ## 0.8.4 — 2026-08-02
 
 ### Fixed
