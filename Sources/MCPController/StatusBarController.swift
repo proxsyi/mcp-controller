@@ -40,6 +40,12 @@ struct StatusPanelPresentation {
     ]
 }
 
+struct StatusPanelTogglePolicy {
+    static func shouldOpen(panelWasVisibleAtMouseDown: Bool, panelIsVisibleNow: Bool) -> Bool {
+        !panelWasVisibleAtMouseDown && !panelIsVisibleNow
+    }
+}
+
 struct StatusPanelDismissalPolicy {
     static func shouldDismiss(
         eventType: NSEvent.EventType,
@@ -67,6 +73,8 @@ final class StatusBarController: NSObject, ObservableObject {
     private var observation: AnyCancellable?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var lastMouseDownEventNumber: Int?
+    private var panelWasVisibleAtLastMouseDown = false
     private weak var model: AppModel?
 
     private lazy var panel: StatusPanel = {
@@ -95,7 +103,7 @@ final class StatusBarController: NSObject, ObservableObject {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             item.button?.target = self
             item.button?.action = #selector(togglePanel(_:))
-            item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            item.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
             statusItem = item
         }
         observation = Publishers.CombineLatest(model.$profiles, model.$phases)
@@ -133,10 +141,20 @@ final class StatusBarController: NSObject, ObservableObject {
     @objc
     private func togglePanel(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        if panel.isVisible {
-            hidePanel(sender)
-        } else {
+        let currentEventNumber = NSApplication.shared.currentEvent?.eventNumber
+        let panelWasVisibleAtMouseDown = currentEventNumber == lastMouseDownEventNumber
+            ? panelWasVisibleAtLastMouseDown
+            : panel.isVisible
+        lastMouseDownEventNumber = nil
+        panelWasVisibleAtLastMouseDown = false
+
+        if StatusPanelTogglePolicy.shouldOpen(
+            panelWasVisibleAtMouseDown: panelWasVisibleAtMouseDown,
+            panelIsVisibleNow: panel.isVisible
+        ) {
             showPanel(relativeTo: button)
+        } else {
+            hidePanel(sender)
         }
     }
 
@@ -167,6 +185,10 @@ final class StatusBarController: NSObject, ObservableObject {
             matching: StatusPanelPresentation.dismissalEventMask
         ) { [weak self] event in
             guard let self, self.panel.isVisible else { return event }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                self.lastMouseDownEventNumber = event.eventNumber
+                self.panelWasVisibleAtLastMouseDown = true
+            }
             let isInsidePanel = event.window === self.panel
             let isInsideStatusItem = self.isInsideStatusItem(event)
             guard StatusPanelDismissalPolicy.shouldDismiss(

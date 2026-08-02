@@ -2,15 +2,15 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.8` (build 35).
+Current release: `v0.8.9` (build 36).
 
 ## Current operational state — August 2, 2026
 
-- Release tag: `v0.8.8` (build 35).
-- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `9612a8fa4b43e5a1f10ee74897387cb00743ba3f1439c6f5830a300aeecb7705`.
+- Release tag: `v0.8.9` (build 36).
+- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `494ba555b1ebe899a9c804b6092392f4c50e36f8e89bae44ac456cef2e60b9a9`.
 - Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
 - Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
-- Menu-bar behavior: the status item now uses a popup-level nonactivating panel with `canJoinAllSpaces` and `fullScreenAuxiliary`, so it opens over the current full-screen app without switching Spaces. Local and global click monitors restore normal transient behavior: clicking outside closes the panel, while panel/status-item clicks remain interactive; Escape also closes it. Dock, Finder, terminal, and duplicate-instance requests still restore and present the main window.
+- Menu-bar behavior: the status item now uses a popup-level nonactivating panel with `canJoinAllSpaces` and `fullScreenAuxiliary`, so it opens over the current full-screen app without switching Spaces. Local and global click monitors restore normal transient behavior: clicking outside closes the panel, while panel/status-item clicks remain interactive; Escape also closes it. The status item acts on mouse-down and records whether the panel was visible at the start of that click, preventing a dismissal click from reopening it later in the same click sequence. Dock, Finder, terminal, and duplicate-instance requests still restore and present the main window.
 - Runtime state at final verification: all 18 configured MCP profiles reported `Running`.
 - Test state: 75 Swift tests passed with zero failures.
 - MCP matrix: 51/51 tested local, localhost-gateway, and public Funnel surfaces passed; MacOS System was skipped only where this chat held its active lease.
