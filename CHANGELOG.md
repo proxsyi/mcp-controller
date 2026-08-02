@@ -2,9 +2,28 @@
 
 ## Unreleased
 
+### Added
+- Added a canonical development-status document covering verified builds, pending installed-app checks, the live MCP release matrix, Serena session continuity, signing, packaging, and release gates.
+- Added SHA-256 checksum files to build and release artifacts and versioned ordinary CI artifact names.
+
 ### Fixed
-- Stopped the installed `mcpctl` terminal client from falsely reporting that MCP Controller was not ready when the control request queue was already available.
-- Fixed the exclusive gateway so an empty Allowed origins field remains truly optional instead of rejecting remote MCP requests that send an `Origin` header.
+- Stopped the installed `mcpctl` terminal client from falsely reporting that MCP Controller was not ready when the control request queue was available.
+- Made an empty Allowed origins field truly optional instead of rejecting remote MCP requests that send an `Origin` header.
+- Recognized npx-launched servers when the actual listener uses a full npm-cache child-executable path whose basename matches the configured command. This repaired OpenPencil adoption without changing OpenPencil itself.
+- Promoted the status popover to a popup-level full-screen auxiliary window that can appear in another application's full-screen Space. This fix is committed but still requires installation and live validation on the MacBook Pro.
+- Bounded the main sidebar to 260–420 points and selected balanced split behavior so organized rows cannot collapse into an icon-only strip. This fix is committed but still requires installation and live validation.
+- Required configured Developer ID signing before a tagged GitHub release can publish instead of silently releasing an ad-hoc-signed app.
+
+### Verified
+- At branch head `930c096`, focused process-adoption tests passed 5/5 and the full Swift suite passed 75/75 with no failures.
+- The production app built, used the stable local `Session Pinger Signing` identity, and installed at `/Applications/MCP Controller.app`.
+- OpenPencil reported `Running`; its upstream HTTP listener was live on `127.0.0.1:4114`, WebSocket listener on `127.0.0.1:7601`, and controller gateway on `127.0.0.1:39008`.
+
+### Pending before merge or release
+- Install the latest branch on `Cashs-MacBook-Pro`; the previous attempt was run from `Cashs-MacBook-Air`, where the repository path did not exist, so no fetch, test, build, or installation occurred.
+- Validate the full-screen menu popover and corrected sidebar layout on the latest build.
+- Complete the full MCP local/public matrix and uninterrupted Serena session proof.
+- Verify signature/Gatekeeper state, merge PR #3, tag, publish signed assets and checksum, and retest the released build only after all runtime gates pass.
 
 ## 0.8.3 — 2026-07-31
 
@@ -41,7 +60,6 @@
 - Added a separate five-minute public MCP request timeout, configurable per protected profile from 1 to 60 minutes.
 - Added explicit Apply & Restart confirmation for edits to running profiles.
 - Added `mcpctl --restart` support for terminal saves and key changes on active profiles.
-
 - Kept running-profile edits as local drafts until restart is confirmed, preventing saved configuration from diverging from the active process.
 - Return HTTP 504 when a public request times out before response data starts, and close already-streaming responses cleanly at the deadline.
 
@@ -63,9 +81,6 @@
 - Queued bulk start and stop operations so servers transition sequentially.
 - Made stop-all wait for each managed process or adopted listener to terminate before continuing.
 - Added `mcpctl lease-release-all` and updated bulk lifecycle terminal responses.
-
-
-All notable changes to MCP Controller are documented here.
 
 ## v0.7.6
 
