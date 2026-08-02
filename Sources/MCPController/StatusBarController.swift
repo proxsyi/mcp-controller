@@ -30,7 +30,6 @@ struct StatusBarPresentation: Equatable {
 
 struct StatusPanelPresentation {
     static let size = NSSize(width: 390, height: 420)
-    static let dismissalEventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .keyDown]
     static let level = NSWindow.Level.popUpMenu
     static let collectionBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces,
@@ -38,21 +37,6 @@ struct StatusPanelPresentation {
         .transient,
         .ignoresCycle
     ]
-}
-
-struct StatusPanelDismissalPolicy {
-    static func shouldDismiss(
-        eventType: NSEvent.EventType,
-        keyCode: UInt16,
-        isInsidePanel: Bool,
-        isInsideStatusItem: Bool
-    ) -> Bool {
-        if eventType == .keyDown {
-            return keyCode == 53
-        }
-        guard eventType == .leftMouseDown || eventType == .rightMouseDown else { return false }
-        return !isInsidePanel && !isInsideStatusItem
-    }
 }
 
 private final class StatusPanel: NSPanel {
@@ -65,8 +49,6 @@ final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
     private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
     private var observation: AnyCancellable?
-    private var localEventMonitor: Any?
-    private var globalEventMonitor: Any?
     private weak var model: AppModel?
 
     private lazy var panel: StatusPanel = {
@@ -134,7 +116,7 @@ final class StatusBarController: NSObject, ObservableObject {
     private func togglePanel(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
         if panel.isVisible {
-            hidePanel(sender)
+            panel.orderOut(sender)
         } else {
             showPanel(relativeTo: button)
         }
@@ -158,56 +140,5 @@ final class StatusBarController: NSObject, ObservableObject {
         panel.setContentSize(panelSize)
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
-        installDismissalMonitors()
-    }
-
-    private func installDismissalMonitors() {
-        removeDismissalMonitors()
-        localEventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: StatusPanelPresentation.dismissalEventMask
-        ) { [weak self] event in
-            guard let self, self.panel.isVisible else { return event }
-            let isInsidePanel = event.window === self.panel
-            let isInsideStatusItem = self.isInsideStatusItem(event)
-            guard StatusPanelDismissalPolicy.shouldDismiss(
-                eventType: event.type,
-                keyCode: event.keyCode,
-                isInsidePanel: isInsidePanel,
-                isInsideStatusItem: isInsideStatusItem
-            ) else { return event }
-            self.hidePanel()
-            return event.type == .keyDown ? nil : event
-        }
-        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.hidePanel()
-            }
-        }
-    }
-
-    private func isInsideStatusItem(_ event: NSEvent) -> Bool {
-        guard let button = statusItem?.button,
-              let buttonWindow = button.window,
-              event.window === buttonWindow else { return false }
-        let point = button.convert(event.locationInWindow, from: nil)
-        return button.bounds.contains(point)
-    }
-
-    private func hidePanel(_ sender: Any? = nil) {
-        panel.orderOut(sender)
-        removeDismissalMonitors()
-    }
-
-    private func removeDismissalMonitors() {
-        if let localEventMonitor {
-            NSEvent.removeMonitor(localEventMonitor)
-            self.localEventMonitor = nil
-        }
-        if let globalEventMonitor {
-            NSEvent.removeMonitor(globalEventMonitor)
-            self.globalEventMonitor = nil
-        }
     }
 }

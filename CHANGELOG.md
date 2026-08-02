@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.8.8 — 2026-08-02
-
-### Fixed
-- Restored transient menu-bar behavior for the full-screen-capable panel: clicking another app, another Controller window, or any area outside the panel now closes it automatically.
-- Kept clicks inside the panel interactive, preserved status-item toggle behavior, and added Escape-key dismissal.
-
 ## 0.8.7 — 2026-08-02
 
 ### Fixed
