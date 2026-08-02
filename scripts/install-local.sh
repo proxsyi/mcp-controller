@@ -11,16 +11,29 @@ rm -rf "$STAGE"
 ditto "$ROOT/dist/$APP_NAME" "$STAGE"
 codesign --verify --deep --strict "$STAGE"
 
-# Stop every Controller instance before replacing the installed bundle. This
-# prevents a development copy and the Applications copy from running together.
-CONTROLLER_PIDS="$(pgrep -f '/MCP Controller\.app/Contents/MacOS/MCPController$' || true)"
+controller_pids() {
+  ps -axo pid=,command= | awk '/\/Applications\/MCP Controller\.app\/Contents\/MacOS\/MCPController$/ { print $1 }'
+}
+
+# Stop every installed Controller instance before replacing the bundle. Use the
+# bundle identifier first so the running app can quit cleanly, then fall back to
+# exact installed-process matching instead of pgrep patterns that can miss this
+# spaced app path on macOS.
+osascript -e 'tell application id "com.versyi.mcp-controller" to quit' >/dev/null 2>&1 || true
+for _ in {1..40}; do
+  CONTROLLER_PIDS="$(controller_pids)"
+  [[ -z "$CONTROLLER_PIDS" ]] && break
+  sleep 0.25
+done
+CONTROLLER_PIDS="$(controller_pids)"
 if [[ -n "$CONTROLLER_PIDS" ]]; then
   kill -TERM $CONTROLLER_PIDS 2>/dev/null || true
   for _ in {1..40}; do
-    pgrep -f '/MCP Controller\.app/Contents/MacOS/MCPController$' >/dev/null || break
+    CONTROLLER_PIDS="$(controller_pids)"
+    [[ -z "$CONTROLLER_PIDS" ]] && break
     sleep 0.25
   done
-  CONTROLLER_PIDS="$(pgrep -f '/MCP Controller\.app/Contents/MacOS/MCPController$' || true)"
+  CONTROLLER_PIDS="$(controller_pids)"
   if [[ -n "$CONTROLLER_PIDS" ]]; then
     kill -KILL $CONTROLLER_PIDS 2>/dev/null || true
   fi
