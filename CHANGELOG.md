@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.8.4 — 2026-08-02
 
 ### Fixed
 - Stopped the installed `mcpctl` terminal client from falsely reporting that MCP Controller was not ready when the control request queue was already available.
 - Fixed the exclusive gateway so an empty Allowed origins field remains truly optional instead of rejecting remote MCP requests that send an `Origin` header.
+- Recovered persistent MCP servers and adopted listeners launched through npm cache wrappers so relaunches do not create duplicate or disconnected processes.
+- Corrected local validation for `mcp-proxy` profiles that expose Streamable HTTP at `/` instead of `/mcp`.
+- Kept the sidebar wide enough to show server names, descriptions, and controls, and increased the default window size for the organized 18-server layout.
 
 ## 0.8.3 — 2026-07-31
 
