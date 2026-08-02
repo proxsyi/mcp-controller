@@ -13,10 +13,33 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             .first(where: { $0.processIdentifier != currentPID }) else { return }
 
         isDuplicateLaunch = true
-        existing.activate(options: [.activateAllWindows])
+        existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         DispatchQueue.main.async {
             NSApplication.shared.terminate(nil)
         }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        presentMainWindow(in: sender)
+        return true
+    }
+
+    private func presentMainWindow(in application: NSApplication) {
+        application.activate(ignoringOtherApps: true)
+
+        let candidate = application.keyWindow
+            ?? application.mainWindow
+            ?? application.windows.first(where: { $0.canBecomeKey && $0.title == "MCP Controller" })
+            ?? application.windows.first(where: { $0.canBecomeKey })
+        guard let window = candidate else { return }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

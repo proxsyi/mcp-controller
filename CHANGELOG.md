@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 — 2026-08-02
+
+### Fixed
+- Made Dock, Finder, terminal, and duplicate-instance reopen requests activate MCP Controller over another app and bring its main window forward, including when the current app occupies a full-screen Space.
+- Restored minimized or hidden Controller windows before ordering them front so reopening the running singleton always presents usable UI.
+
 ## 0.8.5 — 2026-08-02
 
 ### Fixed
