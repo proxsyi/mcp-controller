@@ -55,9 +55,9 @@ For every new profile:
 
 ## Current controller state — August 2, 2026
 
-- MCP Controller `v0.8.6` build 33 is installed as the sole Applications bundle and process.
+- MCP Controller `v0.8.7` build 34 is the current release candidate; installation keeps one Applications bundle and process.
 - All 18 profiles report Running.
-- The current validation matrix passed 51/51 tested local, gateway, and public surfaces; MacOS System was skipped only when its active lease was held by the validating chat.
+- The current catalog validation matrix passed 51/51 tested local, gateway, and public surfaces; the `v0.8.7` code suite passes 76/76 tests.
 - Serena `1.6.1`, WCGW `5.6.4`, and Desktop Commander `0.2.46` are unrestricted at the operating-system capability level by explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, and route controls remain enabled.
 - Desktop Commander's 13 high and 1 moderate audited dependency findings remain an explicitly accepted exception. Serena and WCGW had zero known dependency findings in their audited environments.
 - OpenPencil remains deferred pending its reachable advisory and live-canvas/font work.

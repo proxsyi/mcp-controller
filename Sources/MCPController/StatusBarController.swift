@@ -28,27 +28,58 @@ struct StatusBarPresentation: Equatable {
     }
 }
 
+struct StatusPanelPresentation {
+    static let size = NSSize(width: 390, height: 420)
+    static let level = NSWindow.Level.popUpMenu
+    static let collectionBehavior: NSWindow.CollectionBehavior = [
+        .canJoinAllSpaces,
+        .fullScreenAuxiliary,
+        .transient,
+        .ignoresCycle
+    ]
+}
+
+private final class StatusPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 @MainActor
 final class StatusBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
-    private let popover = NSPopover()
     private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
     private var observation: AnyCancellable?
     private weak var model: AppModel?
+
+    private lazy var panel: StatusPanel = {
+        let panel = StatusPanel(
+            contentRect: NSRect(origin: .zero, size: StatusPanelPresentation.size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentViewController = hostingController
+        panel.level = StatusPanelPresentation.level
+        panel.collectionBehavior = StatusPanelPresentation.collectionBehavior
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.becomesKeyOnlyIfNeeded = true
+        return panel
+    }()
 
     func install(model: AppModel) {
         self.model = model
         if statusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             item.button?.target = self
-            item.button?.action = #selector(togglePopover(_:))
+            item.button?.action = #selector(togglePanel(_:))
             item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
             statusItem = item
         }
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentSize = NSSize(width: 390, height: 420)
-        popover.contentViewController = hostingController
         observation = Publishers.CombineLatest(model.$profiles, model.$phases)
             .receive(on: RunLoop.main)
             .sink { [weak self, weak model] _, _ in
@@ -59,7 +90,11 @@ final class StatusBarController: NSObject, ObservableObject {
     }
 
     private func refresh(using model: AppModel) {
-        hostingController.rootView = AnyView(MenuBarView().environmentObject(model))
+        hostingController.rootView = AnyView(
+            MenuBarView()
+                .environmentObject(model)
+                .background(.regularMaterial)
+        )
         updateButton(using: model)
     }
 
@@ -78,13 +113,32 @@ final class StatusBarController: NSObject, ObservableObject {
     }
 
     @objc
-    private func togglePopover(_ sender: Any?) {
+    private func togglePanel(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        if popover.isShown {
-            popover.performClose(sender)
+        if panel.isVisible {
+            panel.orderOut(sender)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPanel(relativeTo: button)
         }
+    }
+
+    private func showPanel(relativeTo button: NSStatusBarButton) {
+        guard let buttonWindow = button.window else { return }
+        let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+        let buttonFrame = buttonWindow.convertToScreen(buttonFrameInWindow)
+        let panelSize = StatusPanelPresentation.size
+        var origin = NSPoint(
+            x: buttonFrame.midX - panelSize.width / 2,
+            y: buttonFrame.minY - panelSize.height - 6
+        )
+
+        if let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            origin.x = min(max(origin.x, visibleFrame.minX + 8), visibleFrame.maxX - panelSize.width - 8)
+            origin.y = max(origin.y, visibleFrame.minY + 8)
+        }
+
+        panel.setContentSize(panelSize)
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
     }
 }
