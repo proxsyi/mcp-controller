@@ -102,6 +102,7 @@ final class StatusBarController: NSObject, ObservableObject {
 
     private func configurePopoverWindow() {
         guard let window = popover.contentViewController?.view.window else { return }
+        window.identifier = ApplicationPresentationPolicy.statusPopoverWindowIdentifier
         window.level = StatusPopoverWindowConfiguration.level
         window.collectionBehavior.formUnion(StatusPopoverWindowConfiguration.collectionBehavior)
         window.makeKey()

@@ -13,9 +13,15 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$ROOT/.build/release/MCPController" "$CONTENTS/MacOS/MCPController"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$ROOT/Resources/mcpctl" "$CONTENTS/Resources/mcpctl"
+if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
+  cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
+fi
 chmod +x "$CONTENTS/MacOS/MCPController" "$CONTENTS/Resources/mcpctl"
 
 SIGNING_IDENTITY="${MCP_CONTROLLER_SIGNING_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -n 1)"
+fi
 if [[ -z "$SIGNING_IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q '"MCP Controller Local Signing"'; then
   SIGNING_IDENTITY="MCP Controller Local Signing"
 elif [[ -z "$SIGNING_IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q '"Session Pinger Signing"'; then

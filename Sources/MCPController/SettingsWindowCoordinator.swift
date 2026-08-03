@@ -15,6 +15,9 @@ final class SettingsWindowCoordinator: ObservableObject {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         self.window = window
+        window.identifier = ApplicationPresentationPolicy.settingsWindowIdentifier
+        window.title = "MCP Controller Settings"
+        window.isReleasedWhenClosed = false
         if window.isVisible { visibleSince = Date() }
 
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
@@ -32,6 +35,8 @@ final class SettingsWindowCoordinator: ObservableObject {
             visibleSince = nil
             return false
         }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         let age = Date().timeIntervalSince(visibleSince ?? Date())
         guard age >= 0.5 else { return true }
         window.close()
