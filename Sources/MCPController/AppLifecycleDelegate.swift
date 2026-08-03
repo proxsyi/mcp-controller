@@ -14,7 +14,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             .first(where: { $0.processIdentifier != currentPID }) else { return }
 
         isDuplicateLaunch = true
-        existing.activate(options: [.activateIgnoringOtherApps])
+        existing.activate()
         DispatchQueue.main.async {
             NSApplication.shared.terminate(nil)
         }
@@ -22,6 +22,10 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainWindowCoordinator.shared.syncActivationPolicy()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     func applicationShouldHandleReopen(

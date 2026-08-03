@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+### Added
+- Added Controller-scoped `tailscale-reset` and `tailscale-reconnect` commands plus the Settings **Reset & Reconnect** action.
+- Added `release-all` as a terminal alias for `lease-release-all`.
+
 ### Fixed
 - Prevented macOS automatic termination from taking the background Controller offline while its MCP services are active.
+- Made local installation target and relaunch the sole Applications copy reliably.
+- Kept the real main window, native Settings scene, and menu-bar popover distinct; Dock/Finder reopen no longer surfaces the popover shell, while the toolbar and `⌘,` target Settings.
+- Kept the Controller alive after its last app window closes and removed the macOS 14 duplicate-activation deprecation warning.
+- Limited route recovery to configured Controller-owned paths without broad Funnel/Serve resets or taking Tailscale down.
+
+### Documentation
+- Synchronized repository and workspace docs with the scoped recovery behavior, command aliases, corrected window architecture, Apple Development signing, 18-profile runtime recovery, and 81-test result.
 
 ## Documentation — 2026-08-02 (v0.8.10)
 

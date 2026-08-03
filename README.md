@@ -4,21 +4,20 @@ MCP Controller is a native macOS app for managing MCP server processes, access g
 
 Current release: `v0.8.10` (build 37).
 
-## Current operational state — August 2, 2026
+## Current operational state — August 3, 2026
 
-- Release commit and tag: `36682ca` / `v0.8.10`.
-- Release asset: `MCP-Controller-macOS.zip`; SHA-256 `f9e2a014e3964a967a5cb86244a889642226c03f27cb749b04784c24bc561040`.
-- Installed app: `/Applications/MCP Controller.app`, stable-local-signed with `Session Pinger Signing` and verified on disk.
-- Singleton state: exactly one Controller app bundle and one running Controller process. A duplicate launch activates the existing app and exits without invoking managed shutdown.
-- Reopen behavior: Dock, Finder, terminal, and duplicate-instance requests restore the main window across full-screen Spaces. The unchanged native transient menu-bar `NSPopover` keeps its original appearance and click-away behavior while its backing AppKit window joins all Spaces and presents over full-screen apps.
-- Runtime state at final verification: all 18 configured MCP profiles reported `Running`.
-- Test state: 76 Swift tests passed with zero failures.
-- MCP matrix: 51/51 tested local, localhost-gateway, and public Funnel surfaces passed; MacOS System was skipped only where this chat held its active lease.
-- Layout state: sidebar width is constrained to 228–340 points (260 ideal); the app uses a 1040×680 minimum and 1240×800 default window.
-- Release path: `scripts/publish-release.sh` verifies the full commit/tag relationship, builds, tests, signs, packages, generates `SHA256SUMS.txt`, pushes `main` and the tag, and publishes with `--verify-tag`.
-- Install path: `scripts/install-local.sh` stops all Controller copies, atomically replaces the Applications bundle, removes the temporary `dist` app, installs `mcpctl`, and launches one stable copy.
+- Published release remains `v0.8.10` build 37 from commit/tag `36682ca` / `v0.8.10`; the four Controller fixes after that release remain local-only.
+- Local fix branch commits: `347fb0c` keeps the background Controller available, `5ccd928` repairs installed-app relaunch targeting, `558a117` adds Controller-scoped Tailscale recovery, and `a6e3c33` separates main/Settings/popover presentation and packages the app icon/signing preference.
+- Installed app: exactly one `/Applications/MCP Controller.app`, with `AppIcon.icns` and Apple Development signing by team `7JX38C53N8`.
+- Tailscale recovery: `tailscale-reset` and `tailscale-reconnect` rebuild only configured Controller-owned route paths. They never run `tailscale funnel reset`, `tailscale serve reset`, or `tailscale down`.
+- Terminal aliases: `release-all` maps to `lease-release-all`; `tailscale-reset` and `tailscale-reconnect` map to the same scoped recovery operation.
+- Window model: Dock/Finder reopen targets only the real main window; the main window, native Settings scene, and menu-bar popover have distinct identifiers. The toolbar gear/globe and `⌘,` target Settings without surfacing the popover shell.
+- Closing the final app window keeps the menu-bar Controller process alive; minimizing continues to retain normal app/Dock presence.
+- Runtime verification: the scoped reset reconnected 18 Controller-managed routes, `start-all` returned all 18 profiles to `Running`, and MacOS System, Visual, and AppleScript MCP probes succeeded.
+- Test state: 81 Swift tests pass with zero failures, including last-window-close lifecycle coverage.
+- Published validation baseline remains 51/51 local, localhost-gateway, and public Funnel surfaces.
 
-The repository intentionally leaves local runtime artifacts untracked: `.playwright-mcp/`, `.serena/`, `mcp-profiles/`, `mcp-server.log`, and `mcp-server-error.log`. The error log was empty at final verification; the regular server log contained successful ReactBits startup and search activity.
+The repository intentionally leaves local runtime artifacts untracked: `.playwright-mcp/`, `.serena/`, `mcp-profiles/`, `mcp-server.log`, and `mcp-server-error.log`.
 
 ## What it does
 
@@ -130,6 +129,8 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. B
 ~/.local/bin/mcpctl funnel-start
 ~/.local/bin/mcpctl funnel-stop
 ~/.local/bin/mcpctl funnel-status
+~/.local/bin/mcpctl tailscale-reset
+~/.local/bin/mcpctl tailscale-reconnect
 ~/.local/bin/mcpctl use-default-cli
 
 # Access keys, leases, and approvals
@@ -141,6 +142,7 @@ The installed command is `~/.local/bin/mcpctl`. Quote names containing spaces. B
 ~/.local/bin/mcpctl lease "Server Name"
 ~/.local/bin/mcpctl lease-release "Server Name"
 ~/.local/bin/mcpctl lease-release-all
+~/.local/bin/mcpctl release-all
 ~/.local/bin/mcpctl pending
 ~/.local/bin/mcpctl pending "Server Name"
 ~/.local/bin/mcpctl approve "Server Name" --client-id CLIENT_ID
@@ -205,7 +207,7 @@ Protected public routes have a separate request deadline from lease expiry. New 
 
 - `scripts/publish-release.sh` is the validated manual release path while GitHub Actions is blocked by account billing. It requires a clean tracked tree, verifies that the version tag points to the full current commit, reruns tests and the production build, verifies the signature, creates the ZIP and checksum, pushes `main` and the tag, and publishes with `--verify-tag`.
 - `scripts/install-local.sh` is the validated local install path. It stages and verifies the app, stops all Controller processes, atomically replaces `/Applications/MCP Controller.app`, installs `mcpctl`, removes the temporary build app, and launches one Applications copy.
-- Tagged GitHub Actions releases require configured Developer ID certificate and signing identity secrets. Local manual artifacts currently use `Session Pinger Signing`.
+- Tagged GitHub Actions releases require configured Developer ID certificate and signing identity secrets. Local manual artifacts prefer the available Apple Development identity; Developer ID distribution signing is still unavailable.
 - GitHub Official remains a direct connection rather than a Controller-managed profile.
 - Serena, WCGW, and Desktop Commander remain unrestricted at the macOS capability level by Cash's explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, compatibility handling, and route controls are connection protections, not capability sandboxes.
 - Upstream MCP and skill source code is not modified as part of Controller maintenance.
@@ -217,4 +219,4 @@ Deferred work: Developer ID signing/notarization and final distribution choice; 
 
 Public Funnel endpoints are internet-accessible. Use a unique high-entropy gateway key per client, review waiting connections before approval, and avoid broad provider credentials when narrower scopes are available.
 
-The app and provider OAuth stores contain live credentials locally. Do not commit profile exports, provider token files, logs containing secrets, or Application Support data. Local and release artifacts use the available stable local signing identity. Apple Developer ID signing and notarization remain blocked until a Developer ID Application certificate and notary credentials are available; additional security review remains pending.
+The app and provider OAuth stores contain live credentials locally. Do not commit profile exports, provider token files, logs containing secrets, or Application Support data. Local builds use the available Apple Development identity. Apple Developer ID signing and notarization remain blocked until a Developer ID Application certificate and notary credentials are available; additional security review remains pending.

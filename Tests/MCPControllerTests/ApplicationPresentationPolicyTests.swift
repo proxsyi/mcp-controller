@@ -16,6 +16,13 @@ final class ApplicationPresentationPolicyTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testClosingLastWindowKeepsMenuBarControllerAlive() {
+        XCTAssertFalse(
+            AppLifecycleDelegate().applicationShouldTerminateAfterLastWindowClosed(.shared)
+        )
+    }
+
     func testMainAndPopoverWindowIdentifiersStayDistinct() {
         XCTAssertNotEqual(
             ApplicationPresentationPolicy.mainWindowIdentifier,
