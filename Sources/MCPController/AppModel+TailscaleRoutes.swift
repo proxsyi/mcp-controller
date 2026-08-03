@@ -58,6 +58,67 @@ extension AppModel {
         if !failures.isEmpty { presentedError = "Some Tailscale routes could not start:\n" + failures.joined(separator: "\n") }
     }
 
+    @discardableResult
+    func resetManagedTailscaleConnections() async -> Int? {
+        guard TailscaleMutationCoordinator.shared.begin() else {
+            presentedError = "Another Tailscale change is already in progress."
+            return nil
+        }
+        defer { TailscaleMutationCoordinator.shared.end() }
+
+        presentedError = nil
+        let routes = serverProfiles.filter { $0.tailscaleRouteEnabled && $0.exposureMode != .disabled }
+        guard !routes.isEmpty else {
+            presentedError = "Configure at least one Controller-managed Tailscale route before reconnecting."
+            return nil
+        }
+
+        // Route recovery is intentionally scoped to paths owned by MCP Controller.
+        // Never substitute a global `tailscale funnel reset`, Serve reset, or tailscale down.
+        startAll()
+
+        var failures: [String] = []
+        var reconnected = 0
+        var funnelReconnected = false
+
+        for profile in routes {
+            guard TailscaleRouteService.isCLIAvailable(at: profile.tailscalePath),
+                  let arguments = TailscaleCommandBuilder.enableArguments(for: profile) else {
+                failures.append("\(profile.name): Tailscale CLI or route configuration is invalid")
+                continue
+            }
+
+            let removalFailures = await removeManagedRoutes(for: profile)
+            if !removalFailures.isEmpty {
+                failures.append(contentsOf: removalFailures.map { "\(profile.name): \($0)" })
+                continue
+            }
+
+            do {
+                let result = try await CommandRunner.runAsync(
+                    executable: profile.tailscalePath,
+                    arguments: arguments,
+                    timeout: 30
+                )
+                if result.exitCode == 0 {
+                    reconnected += 1
+                    if profile.exposureMode == .funnel { funnelReconnected = true }
+                } else {
+                    failures.append("\(profile.name): \(result.error.isEmpty ? result.output : result.error)")
+                }
+            } catch {
+                failures.append("\(profile.name): \(error.localizedDescription)")
+            }
+        }
+
+        tailscaleFunnelRunning = funnelReconnected
+        UserDefaults.standard.set(funnelReconnected, forKey: "tailscale.funnelRunning")
+        if !failures.isEmpty {
+            presentedError = "Some Controller-managed Tailscale routes could not reconnect:\n" + failures.joined(separator: "\n")
+        }
+        return reconnected
+    }
+
     func stopTailscaleFunnel() async {
         guard TailscaleMutationCoordinator.shared.begin() else {
             presentedError = "Another Tailscale change is already in progress."

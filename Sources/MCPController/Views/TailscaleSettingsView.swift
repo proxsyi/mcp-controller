@@ -7,6 +7,8 @@ struct TailscaleSettingsView: View {
     @State private var dnsName = ""
     @State private var dnsRefreshToken = UUID()
     @State private var mountPathDrafts: [UUID: String] = [:]
+    @State private var isResettingConnections = false
+    @State private var resetStatus = ""
     @FocusState private var focusedRouteID: UUID?
 
     private var serverIndices: [Int] {
@@ -61,6 +63,26 @@ struct TailscaleSettingsView: View {
                     refreshDNS()
                 }
                 .controlSize(.small)
+            }
+            Divider()
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Controller route recovery").font(.subheadline.weight(.medium))
+                    Text("Starts configured servers and rebuilds only MCP Controller-owned Tailscale routes. It never runs a global Funnel or Serve reset.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Reset & Reconnect", systemImage: "arrow.triangle.2.circlepath") {
+                    Task { await resetConnections() }
+                }
+                .controlSize(.small)
+                .disabled(isResettingConnections)
+            }
+            if !resetStatus.isEmpty {
+                Text(resetStatus)
+                    .font(.caption)
+                    .foregroundStyle(model.presentedError == nil ? .green : .orange)
             }
         }
         .padding(16).background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
@@ -212,6 +234,21 @@ struct TailscaleSettingsView: View {
             mountPathDrafts[profileID] = updated.mountPath
         }
         refreshDNS()
+    }
+
+    @MainActor
+    private func resetConnections() async {
+        guard !isResettingConnections else { return }
+        isResettingConnections = true
+        resetStatus = "Reconnecting Controller-managed routes…"
+        let count = await model.resetManagedTailscaleConnections()
+        if let count, model.presentedError == nil {
+            resetStatus = "Reconnected \(count) Controller-managed route\(count == 1 ? "" : "s")."
+        } else {
+            resetStatus = model.presentedError ?? "Route recovery did not complete."
+        }
+        refreshDNS()
+        isResettingConnections = false
     }
 
     private func publicAddress(for profile: ServerProfile) -> String {

@@ -39,7 +39,7 @@ def ensure_app():
 
 def main():
     parser=argparse.ArgumentParser(prog="mcpctl", description="Control MCP Controller from Terminal")
-    parser.add_argument("action", help="list, status, show, export, template, new, heading-add, spacer-add, rename, move, save, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, remote-url, funnel-start, funnel-stop, funnel-status, use-default-cli, lease, lease-release, lease-release-all, pending, approve, deny, keys, key-add, key-remove, key-show, duplicate, remove, one-ai, check-updates, install-update, open, settings, quit")
+    parser.add_argument("action", help="list, status, show, export, template, new, heading-add, spacer-add, rename, move, save, import, start, stop, restart, start-all, stop-all, logs, clear-logs, route-start, route-stop, remote-url, funnel-start, funnel-stop, funnel-status, tailscale-reset, tailscale-reconnect, use-default-cli, lease, lease-release, lease-release-all, release-all, pending, approve, deny, keys, key-add, key-remove, key-show, duplicate, remove, one-ai, check-updates, install-update, open, settings, quit")
     parser.add_argument("target", nargs="?", help="Item name or UUID")
     parser.add_argument("--secrets", action="store_true", help="Include stored secrets in export")
     parser.add_argument("--restart", action="store_true", help="Restart a running server to apply save or key changes")

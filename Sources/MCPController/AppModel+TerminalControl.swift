@@ -92,7 +92,7 @@ extension AppModel {
             return .ok("Removed \(item.name.isEmpty ? item.kind.rawValue : item.name).")
         case "start-all": startAll(); return .ok("Queued all configured servers to start.")
         case "stop-all": stopAll(); return .ok("Queued all managed servers to stop.")
-        case "lease-release-all": releaseAllLeases(); return .ok("Released every active AI lease.")
+        case "lease-release-all", "release-all": releaseAllLeases(); return .ok("Released every active AI lease.")
         case "logs":
             guard let profile = terminalServerProfile(request.target) else { return .error("Server not found.") }
             return .ok(profile.name, payload: logs[profile.id] ?? "")
@@ -102,6 +102,10 @@ extension AppModel {
         case "funnel-start": await startTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes started.") : .error(presentedError!)
         case "funnel-stop": await stopTailscaleFunnel(); return presentedError == nil ? .ok("Funnel routes stopped.") : .error(presentedError!)
         case "funnel-status": return .ok(tailscaleFunnelRunning ? "running" : "stopped")
+        case "tailscale-reset", "tailscale-reconnect":
+            let count = await resetManagedTailscaleConnections()
+            if let error = presentedError { return .error(error) }
+            return .ok("Queued all configured servers to start and reconnected \(count ?? 0) Controller-managed Tailscale route(s).")
         case "use-default-cli": applyDefaultTailscaleCLIToAllProfiles(); return .ok("Updated every profile to use the default Tailscale CLI path.")
         case "one-ai":
             guard let enabledValue = request.arguments["enabled"] else {
