@@ -2,12 +2,12 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.10` (build 37).
+Current release: `v0.8.11` (build 38).
 
 ## Current operational state — August 3, 2026
 
-- Published release remains `v0.8.10` build 37 from commit/tag `36682ca` / `v0.8.10`; the four Controller fixes after that release remain local-only.
-- Local fix branch commits: `347fb0c` keeps the background Controller available, `5ccd928` repairs installed-app relaunch targeting, `558a117` adds Controller-scoped Tailscale recovery, and `a6e3c33` separates main/Settings/popover presentation and packages the app icon/signing preference.
+- Release `v0.8.11` build 38 includes the Controller lifetime, installer targeting, scoped Tailscale recovery, corrected window architecture, icon/signing, and last-window-close fixes.
+- Included fix commits: `347fb0c` keeps the background Controller available, `5ccd928` repairs installed-app relaunch targeting, `558a117` adds Controller-scoped Tailscale recovery, `a6e3c33` separates main/Settings/popover presentation and packages the app icon/signing preference, and `a8d0b8c` keeps the Controller alive after its final window closes.
 - Installed app: exactly one `/Applications/MCP Controller.app`, with `AppIcon.icns` and Apple Development signing by team `7JX38C53N8`.
 - Tailscale recovery: `tailscale-reset` and `tailscale-reconnect` rebuild only configured Controller-owned route paths. They never run `tailscale funnel reset`, `tailscale serve reset`, or `tailscale down`.
 - Terminal aliases: `release-all` maps to `lease-release-all`; `tailscale-reset` and `tailscale-reconnect` map to the same scoped recovery operation.
@@ -191,7 +191,7 @@ bash scripts/check-notion-validation.sh
 bash scripts/run-mcp-health-check.sh
 ```
 
-`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The current `v0.8.10` verification retains the established 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
+`validate-all-profiles.py` detects each profile's configured Streamable HTTP endpoint, including `mcp-proxy` profiles mounted at `/` rather than `/mcp`. It checks configured profiles through local, localhost-gateway, and public Tailscale surfaces, lists tools, and runs only explicitly non-destructive representative calls. Use `--skip "Profile Name"` when a profile already has an active exclusive client lease. The current `v0.8.11` verification retains the established 51/51 tested surfaces with MacOS System skipped for its active lease; all 18 profiles reported Running. The earlier Desktop Commander Copy HTTP 404 was a validator endpoint-detection false positive and is closed.
 
 Validate a new profile locally and publicly before adding its custom MCP URL to another client.
 

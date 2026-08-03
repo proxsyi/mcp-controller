@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.11 — 2026-08-03
 
 ### Added
 - Added Controller-scoped `tailscale-reset` and `tailscale-reconnect` commands plus the Settings **Reset & Reconnect** action.
