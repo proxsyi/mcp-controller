@@ -10,50 +10,18 @@ struct MenuBarView: View {
         }, 280)
     }
 
-    private var startingCount: Int {
-        model.serverProfiles.filter { model.phase(for: $0.id) == .starting }.count
-    }
-
-    private var stoppingCount: Int {
-        model.serverProfiles.filter { model.phase(for: $0.id) == .stopping }.count
-    }
-
-    private var statusSummary: String {
-        var parts: [String] = []
-        if model.runningCount > 0 {
-            parts.append("\(model.runningCount) running")
-        }
-        if startingCount > 0 {
-            parts.append("\(startingCount) starting")
-        }
-        if stoppingCount > 0 {
-            parts.append("\(stoppingCount) stopping")
-        }
-        if model.failedCount > 0 {
-            parts.append("\(model.failedCount) failed")
-        }
-        if parts.isEmpty, model.activeCount > 0 {
-            parts.append("\(model.activeCount) active")
-        }
-        return parts.isEmpty ? "Stopped" : parts.joined(separator: " · ")
-    }
-
-    private var statusColor: Color {
-        if model.failedCount > 0 { return .red }
-        if model.runningCount > 0 { return .green }
-        if model.activeCount > 0 { return .orange }
-        return .secondary
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("MCP Controller").font(.headline)
                 Spacer()
-                Text(statusSummary)
-                    .font(.caption)
-                    .foregroundStyle(statusColor)
-                    .contentTransition(.numericText())
+                Toggle("Auto Release", isOn: Binding(
+                    get: { model.isAutoReleaseAllEnabled },
+                    set: { model.setAutoReleaseAllEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help("Runs ~/.local/bin/mcpctl release-all immediately and every 60 seconds while enabled.")
             }
             Divider()
             if model.profiles.isEmpty {

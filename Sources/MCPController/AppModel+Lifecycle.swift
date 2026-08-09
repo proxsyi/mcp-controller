@@ -2,6 +2,7 @@ import Foundation
 
 extension AppModel {
     func shutdownForApplicationQuit() async {
+        stopAutoReleaseAllLoop()
         stopImmediatelyForApplicationQuit()
         let funnelProfiles = serverProfiles.filter { $0.tailscaleRouteEnabled && $0.exposureMode == .funnel }
 

@@ -15,10 +15,12 @@ final class AppModel: ObservableObject {
     @Published var presentedError: String?
     @Published private(set) var isProcessingBulkLifecycleAction = false
     @Published private(set) var tailscaleDNSNames: [String: String] = [:]
+    @Published private(set) var isAutoReleaseAllEnabled = false
 
     private let store = ProfileStore()
     private let gatewayManager = ExclusiveGatewayManager()
     private let terminalControl = TerminalControlService()
+    private let autoReleaseAllLoop = AutoReleaseAllLoop()
     private var processes: [UUID: Process] = [:]
     private var adoptedListeners: [UUID: ListeningProcess] = [:]
     private var outputPipes: [UUID: [Pipe]] = [:]
@@ -42,6 +44,9 @@ final class AppModel: ObservableObject {
 
     init() {
         Self.shared = self
+        autoReleaseAllLoop.onTermination = { [weak self] in
+            self?.isAutoReleaseAllEnabled = false
+        }
         gatewayManager.onStateChange = { [weak self] profileID, active, pending in
             Task { @MainActor in
                 if let active { self?.gatewayLeases[profileID] = active }
@@ -80,6 +85,26 @@ final class AppModel: ObservableObject {
         for profile in profiles where lease(for: profile.id) != nil {
             releaseLease(profileID: profile.id)
         }
+    }
+
+    func setAutoReleaseAllEnabled(_ enabled: Bool) {
+        if enabled {
+            do {
+                try autoReleaseAllLoop.start()
+                isAutoReleaseAllEnabled = autoReleaseAllLoop.isRunning
+            } catch {
+                isAutoReleaseAllEnabled = false
+                presentedError = "Could not start Auto Release: \(error.localizedDescription)"
+            }
+        } else {
+            autoReleaseAllLoop.stop()
+            isAutoReleaseAllEnabled = false
+        }
+    }
+
+    func stopAutoReleaseAllLoop() {
+        autoReleaseAllLoop.stop()
+        isAutoReleaseAllEnabled = false
     }
 
     func acknowledgeFailureAndReturnLogs(for id: UUID) -> String {
