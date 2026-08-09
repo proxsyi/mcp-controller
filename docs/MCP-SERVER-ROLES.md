@@ -11,6 +11,7 @@ Use the narrowest server that directly matches the task. Product-specific server
 | **Chrome DevTools** | Browser inspection and debugging | The task needs DOM, network, console, performance, or Chrome runtime information |
 | **Lighthouse** | Web quality audits | The task needs performance, accessibility, SEO, or best-practice scoring |
 | **Playwright** | Browser testing and automation | The task needs repeatable browser flows, assertions, or cross-page testing |
+| **BrowserMCP** | Browser-profile control through its companion extension | The task needs browser automation in a Chrome profile after the extension is installed |
 | **ReactBits** | React components and motion references | The task needs implementation-ready React UI or animation patterns |
 | **OpenPencil** | Editable interface design automation | The task needs structured visual design artifacts or design-system work |
 | **Context7** | Current library documentation | The task needs version-specific API references or current code examples |
@@ -53,11 +54,14 @@ For every new profile:
 
 `scripts/test-mcp-servers.py`, `scripts/check-mcp-stack.py`, and the profile-specific diagnostics provide repeatable checks. Never assume a successful process launch proves the public MCP route works.
 
-## Current controller state — August 2, 2026
+## Current controller state — August 8, 2026
 
-- MCP Controller `v0.8.10` build 37 is installed as the sole Applications bundle and process.
-- All 18 profiles report Running.
-- The current validation matrix passed 51/51 tested local, gateway, and public surfaces; MacOS System was skipped only when its active lease was held by the validating chat.
-- Serena `1.6.1`, WCGW `5.6.4`, and Desktop Commander `0.2.46` are unrestricted at the operating-system capability level by explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, and route controls remain enabled.
+- Published GitHub release: `v0.8.10` build 37 from `36682ca` / tag `v0.8.10`. Local `main` and `origin/main` are at `387a048`.
+- Installed app: one signature-verified `/Applications/MCP Controller.app`, version `0.8.11` build 38.
+- All **19 configured profiles** report `Running`; the full Swift suite passed **82 tests with 0 failures**.
+- The installed menu-bar **Auto Release** toggle owns a single loop running `while true; do ~/.local/bin/mcpctl release-all; sleep 60; done` until disabled or the managed app quit path stops it. It releases active AI leases and does not stop profiles.
+- MacOS System was restored after a local Python environment failure by running `/opt/homebrew/bin/uv sync --reinstall-package macos-mcp` in its server project; the Controller itself did not require a code change.
+- BrowserMCP (`@browsermcp/mcp@0.1.3`) and Playwright (`@playwright/mcp@0.0.79`) passed authenticated initialization. BrowserMCP needs its companion Chrome extension for browser-profile control.
+- Serena `1.6.1`, WCGW `5.6.4`, and Desktop Commander `0.2.46` remain unrestricted at the operating-system capability level by explicit decision. Controller Bearer authentication, exclusive leases, Origin checks, request deadlines, and route controls remain enabled.
 - Desktop Commander's 13 high and 1 moderate audited dependency findings remain an explicitly accepted exception. Serena and WCGW had zero known dependency findings in their audited environments.
 - OpenPencil remains deferred pending its reachable advisory and live-canvas/font work.

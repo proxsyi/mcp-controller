@@ -2,20 +2,19 @@
 
 MCP Controller is a native macOS app for managing MCP server processes, access gateways, and Tailscale exposure from one place.
 
-Current release: `v0.8.11` (build 38).
+Published GitHub release: `v0.8.10` (build 37, tag/commit `36682ca`). Local development state: `main` and `origin/main` at `387a048`; the installed `/Applications/MCP Controller.app` is version `0.8.11` (build 38).
 
-## Current operational state — August 3, 2026
+## Current operational state — August 8, 2026
 
-- Release `v0.8.11` build 38 includes the Controller lifetime, installer targeting, scoped Tailscale recovery, corrected window architecture, icon/signing, and last-window-close fixes.
-- Included fix commits: `347fb0c` keeps the background Controller available, `5ccd928` repairs installed-app relaunch targeting, `558a117` adds Controller-scoped Tailscale recovery, `a6e3c33` separates main/Settings/popover presentation and packages the app icon/signing preference, and `a8d0b8c` keeps the Controller alive after its final window closes.
-- Installed app: exactly one `/Applications/MCP Controller.app`, with `AppIcon.icns` and Apple Development signing by team `7JX38C53N8`.
-- Tailscale recovery: `tailscale-reset` and `tailscale-reconnect` rebuild only configured Controller-owned route paths. They never run `tailscale funnel reset`, `tailscale serve reset`, or `tailscale down`.
-- Terminal aliases: `release-all` maps to `lease-release-all`; `tailscale-reset` and `tailscale-reconnect` map to the same scoped recovery operation.
-- Window model: Dock/Finder reopen targets only the real main window; the main window, native Settings scene, and menu-bar popover have distinct identifiers. The toolbar gear/globe and `⌘,` target Settings without surfacing the popover shell.
-- Closing the final app window keeps the menu-bar Controller process alive; minimizing continues to retain normal app/Dock presence.
-- Runtime verification: the scoped reset reconnected 18 Controller-managed routes, `start-all` returned all 18 profiles to `Running`, and MacOS System, Visual, and AppleScript MCP probes succeeded.
-- Test state: 81 Swift tests pass with zero failures, including last-window-close lifecycle coverage.
-- Published validation baseline remains 51/51 local, localhost-gateway, and public Funnel surfaces.
+- The installed local app is exactly one signature-verified `/Applications/MCP Controller.app` bundle (Apple Development team `7JX38C53N8`), built from `387a048` (`feat(menu): add auto release toggle`). The published GitHub release remains `v0.8.10` build 37 until a new tagged release is intentionally published.
+- **Auto Release** replaces the menu-bar running-count text with a toggle. While enabled, the app owns one tracked `/bin/zsh -lc` child process running exactly `while true; do ~/.local/bin/mcpctl release-all; sleep 60; done`. Disabling the toggle or using the app's managed quit path terminates that child process; it does not stop MCP servers.
+- `release-all` remains the terminal alias for `lease-release-all`. A direct loop smoke test returned `Released every active AI lease.`
+- The full Swift suite passed: **82 tests, 0 failures**. The production build completed before the local install.
+- All **19 configured profiles** reported `Running` after recovery. MacOS System's local package environment was repaired with `/opt/homebrew/bin/uv sync --reinstall-package macos-mcp` after its virtual environment lost the `macos_mcp` package.
+- BrowserMCP (`@browsermcp/mcp@0.1.3`) and Playwright (`@playwright/mcp@0.0.79`) completed authenticated initialize checks. BrowserMCP still requires its companion Chrome extension for browser-profile control.
+- Tailscale recovery commands are scoped to Controller-owned route paths. `tailscale-reset` and `tailscale-reconnect` never run `tailscale funnel reset`, `tailscale serve reset`, or `tailscale down`.
+- The configured source path is a safe symlink: `~/Projects/Clients/Versyi/MCP-Controller` → `~/Documents/Projects/Clients/Versyi/MCP Controller/temp/desktop-MCP-Controller-current`. Do not use the historical `desktop-MCP-Controller-prior` checkout.
+- The earlier 51/51-surface validation, 18-profile recovery, and 81-test results are historical validation records, not the current runtime count or test total.
 
 The repository intentionally leaves local runtime artifacts untracked: `.playwright-mcp/`, `.serena/`, `mcp-profiles/`, `mcp-server.log`, and `mcp-server-error.log`.
 

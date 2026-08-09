@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — 2026-08-08
+
+### Added
+- Added the menu-bar **Auto Release** toggle. While enabled, it owns one tracked `/bin/zsh -lc` process running `while true; do ~/.local/bin/mcpctl release-all; sleep 60; done`; disabling it or using managed app quit terminates that process.
+
+### Verified
+- Passed the full Swift suite: 82 tests, 0 failures; completed a production build and a direct Auto Release loop smoke test.
+- Installed the signature-verified local app as version 0.8.11 build 38 from `387a048` (`feat(menu): add auto release toggle`), while the published GitHub release remains v0.8.10 build 37.
+- Restored the MacOS System server's local Python environment with `uv sync --reinstall-package macos-mcp`; all 19 configured profiles then reported Running.
+- Configured BrowserMCP and updated Playwright; both passed authenticated initialization. BrowserMCP requires its companion Chrome extension for browser-profile control.
+
+### Documentation
+- Synchronized current repository documentation with the August 8 local state and retained prior release and change-log records as historical evidence.
+
 ## 0.8.11 — 2026-08-03
 
 ### Added
