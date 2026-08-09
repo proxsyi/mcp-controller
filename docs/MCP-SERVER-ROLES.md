@@ -56,7 +56,7 @@ For every new profile:
 
 ## Current controller state — August 8, 2026
 
-- Published GitHub release: `v0.8.10` build 37 from `36682ca` / tag `v0.8.10`. Local `main` and `origin/main` are at `387a048`.
+- Published GitHub release: `v0.8.10` build 37 from `36682ca` / tag `v0.8.10`. Synchronized `main` and `origin/main` include application commit `387a048` plus subsequent documentation updates.
 - Installed app: one signature-verified `/Applications/MCP Controller.app`, version `0.8.11` build 38.
 - All **19 configured profiles** report `Running`; the full Swift suite passed **82 tests with 0 failures**.
 - The installed menu-bar **Auto Release** toggle owns a single loop running `while true; do ~/.local/bin/mcpctl release-all; sleep 60; done` until disabled or the managed app quit path stops it. It releases active AI leases and does not stop profiles.
