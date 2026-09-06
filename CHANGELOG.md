@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.12 — 2026-09-05
+
+### Fixed
+- Added an MCP initialization readiness probe so the Controller does not report a server as Running merely because a wrapper opened its HTTP port.
+- Failed startup now reports the MCP initialization error and terminates the unhealthy wrapper instead of leaving a false-positive Running state.
+
+### Verified
+- Passed the full Swift test suite: 83 tests, 0 failures.
+- Passed the production build.
+
 ## Unreleased — 2026-08-08
 
 ### Added

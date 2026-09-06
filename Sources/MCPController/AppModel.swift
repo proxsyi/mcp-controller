@@ -366,7 +366,14 @@ final class AppModel: ObservableObject {
         while Date() < deadline {
             guard phase(for: profile.id) == .starting, processes[profile.id]?.isRunning == true else { return }
             if let listener = await PortInspector.listenerAsync(on: profile.localPort), PortInspector.belongsToProfile(listener, profile: profile) {
-                await finishStart(profile); return
+                do {
+                    try await MCPReadinessProbe.verify(profile: profile)
+                    await finishStart(profile)
+                } catch {
+                    fail(profile, "\(profile.name) opened port \(profile.localPort), but MCP initialization failed: \(error.localizedDescription)")
+                    processes[profile.id]?.terminate()
+                }
+                return
             }
             try? await Task.sleep(for: .milliseconds(350))
         }
