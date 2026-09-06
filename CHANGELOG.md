@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.13 — 2026-09-05
+
+### Fixed
+- Prevented duplicate update clicks from launching multiple installer helpers.
+- Added a bounded installer wait with forced old-process termination and post-copy code-signature verification, so updates cannot remain stalled indefinitely.
+
+### Verified
+- Full Swift test suite and production build passed.
+
 ## 0.8.12 — 2026-09-05
 
 ### Fixed

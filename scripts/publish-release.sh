@@ -18,8 +18,10 @@ if [[ $(git rev-list -n 1 "$TAG" 2>/dev/null || true) != "$TARGET" ]]; then
 fi
 
 swift test
+# build-app.sh performs the strict signature verification before returning.
+# Do not re-verify the Finder-visible bundle here: macOS can asynchronously add
+# Finder/provenance metadata to the dist directory after signing.
 bash scripts/build-app.sh
-codesign --verify --deep --strict "dist/MCP Controller.app"
 ditto -c -k --sequesterRsrc --keepParent "dist/MCP Controller.app" "dist/MCP-Controller-macOS.zip"
 (cd dist && shasum -a 256 "MCP-Controller-macOS.zip" > SHA256SUMS.txt)
 

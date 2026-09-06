@@ -10,13 +10,15 @@ APP_DIR="$ROOT/dist/MCP Controller.app"
 CONTENTS="$APP_DIR/Contents"
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-cp "$ROOT/.build/release/MCPController" "$CONTENTS/MacOS/MCPController"
-cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
-cp "$ROOT/Resources/mcpctl" "$CONTENTS/Resources/mcpctl"
+cp -X "$ROOT/.build/release/MCPController" "$CONTENTS/MacOS/MCPController"
+cp -X "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
+cp -X "$ROOT/Resources/mcpctl" "$CONTENTS/Resources/mcpctl"
 if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
-  cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
+  cp -X "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
 fi
 chmod +x "$CONTENTS/MacOS/MCPController" "$CONTENTS/Resources/mcpctl"
+# Finder/provenance metadata can be copied from local app bundles and makes codesign reject the build.
+xattr -cr "$APP_DIR" 2>/dev/null || true
 
 SIGNING_IDENTITY="${MCP_CONTROLLER_SIGNING_IDENTITY:-}"
 if [[ -z "$SIGNING_IDENTITY" ]]; then

@@ -160,7 +160,8 @@ final class UpdateManager: ObservableObject {
                 await MainActor.run {
                     guard let self else { return }
                     self.statusMessage = "Installing update…"
-                    self.installTask = nil
+                    // Keep the task occupied until this process exits so a second
+                    // click cannot launch another installer helper.
                     NSApplication.shared.terminate(nil)
                 }
             } catch {
@@ -201,15 +202,28 @@ final class UpdateManager: ObservableObject {
         let script = staging.appendingPathComponent("install-update.sh")
         let contents = """
         #!/bin/zsh
-        set -e
+        set -euo pipefail
         pid="$1"
         current="$2"
         replacement="$3"
         staging="$4"
-        while /bin/kill -0 "$pid" 2>/dev/null; do /bin/sleep 0.25; done
+
+        # The app normally exits after launching this helper. Do not wait forever
+        # if AppKit delays termination or a previous helper was duplicated.
+        deadline=$((SECONDS + 30))
+        while /bin/kill -0 "$pid" 2>/dev/null; do
+          if (( SECONDS >= deadline )); then
+            /bin/kill -TERM "$pid" 2>/dev/null || true
+            /bin/sleep 2
+            /bin/kill -KILL "$pid" 2>/dev/null || true
+            break
+          fi
+          /bin/sleep 0.25
+        done
+
         backup="${current}.previous-${pid}-$(/bin/date +%s)"
         /bin/mv "$current" "$backup"
-        if /usr/bin/ditto "$replacement" "$current"; then
+        if /usr/bin/ditto "$replacement" "$current" && /usr/bin/codesign --verify --deep --strict "$current"; then
           /usr/bin/open "$current"
           /bin/rm -rf "$backup" "$staging"
         else
